@@ -1,0 +1,94 @@
+name: Manual Infrastructure Destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to destroy (dev/prod)'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - prod
+      confirmation:
+        description: 'Type "DESTROY" to confirm destruction of resources'
+        required: true
+        type: string
+
+jobs:
+  validate-confirmation:
+    name: Validate Confirmation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check confirmation input
+        if: ${{ github.event.inputs.confirmation != 'DESTROY' }}
+        run: |
+          echo "Error: You must type 'DESTROY' exactly to confirm resource destruction"
+          exit 1
+
+  destroy-infrastructure:
+    name: Destroy Infrastructure
+    needs: validate-confirmation
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+    
+    - name: Detect Infrastructure Type
+      id: detect-infra
+      run: |
+        if [ -f serverless.yml ]; then
+          echo "infra_type=serverless" >> $GITHUB_OUTPUT
+        elif [ -d infrastructure/cdk ]; then
+          echo "infra_type=cdk" >> $GITHUB_OUTPUT
+        elif [ -f infrastructure/cloudformation/template.yaml ]; then
+          echo "infra_type=cloudformation" >> $GITHUB_OUTPUT
+        elif [ -d infrastructure/terraform ]; then
+          echo "infra_type=terraform" >> $GITHUB_OUTPUT
+        else
+          echo "infra_type=unknown" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Destroy with Serverless Framework
+      if: steps.detect-infra.outputs.infra_type == 'serverless'
+      uses: ./.github/actions/destroy-serverless
+      with:
+        environment: ${{ github.event.inputs.environment }}
+    
+    - name: Destroy with AWS CDK
+      if: steps.detect-infra.outputs.infra_type == 'cdk'
+      uses: ./.github/actions/destroy-cdk
+    
+    - name: Destroy with CloudFormation
+      if: steps.detect-infra.outputs.infra_type == 'cloudformation'
+      uses: ./.github/actions/destroy-cloudformation
+      with:
+        environment: ${{ github.event.inputs.environment }}
+        repository: ${{ github.repository }}
+    
+    - name: Destroy with Terraform
+      if: steps.detect-infra.outputs.infra_type == 'terraform'
+      uses: ./.github/actions/destroy-terraform
+      with:
+        environment: ${{ github.event.inputs.environment }}
+    
+    - name: No recognized infrastructure
+      if: steps.detect-infra.outputs.infra_type == 'unknown'
+      run: |
+        echo "No recognized infrastructure code found"
+        exit 1

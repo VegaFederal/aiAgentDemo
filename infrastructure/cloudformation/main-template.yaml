@@ -45,7 +45,23 @@ Resources:
     Properties:
       TemplateURL: ./templates/static-website.yaml
       Parameters:
+        ProjectName: !Ref AWS::StackName
         Environment: !Ref Environment
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+          
+  # CDN Stack
+  CdnStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: [StaticWebsiteStack, ApiGatewayStack]
+    Properties:
+      TemplateURL: ./templates/cdn.yaml
+      Parameters:
+        ProjectName: !Ref AWS::StackName
+        Environment: !Ref Environment
+        WebsiteBucketName: !GetAtt StaticWebsiteStack.Outputs.WebsiteBucketName
+        ApiEndpoint: !GetAtt ApiGatewayStack.Outputs.LlmAgentApiEndpoint
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -58,6 +74,16 @@ Resources:
       Parameters:
         Environment: !Ref Environment
         DocumentsBucketName: !Sub aiad-docs
+        
+  # API Gateway Stack
+  ApiGatewayStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: BedrockLambdaStack
+    Properties:
+      TemplateURL: ./templates/api-gateway.yaml
+      Parameters:
+        Environment: !Ref Environment
+        LlmAgentFunctionArn: !GetAtt BedrockLambdaStack.Outputs.LlmAgentFunctionArn
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -69,7 +95,15 @@ Outputs:
 
   CloudFrontDistributionDomainName:
     Description: CloudFront Distribution Domain Name
-    Value: !GetAtt StaticWebsiteStack.Outputs.CloudFrontDistributionDomainName
+    Value: !GetAtt CdnStack.Outputs.CloudFrontDistributionDomainName
+    
+  WebsiteUrl:
+    Description: CloudFront distribution URL for the website
+    Value: !GetAtt CdnStack.Outputs.WebsiteUrl
+
+  DistributionId:
+    Description: CloudFront distribution ID
+    Value: !GetAtt CdnStack.Outputs.DistributionId
 
   DocumentsBucketName:
     Description: S3 Bucket for document storage
@@ -77,4 +111,4 @@ Outputs:
 
   LlmAgentApiEndpoint:
     Description: API Gateway endpoint URL for LLM Agent
-    Value: !GetAtt BedrockLambdaStack.Outputs.LlmAgentApiEndpoint
+    Value: !GetAtt ApiGatewayStack.Outputs.LlmAgentApiEndpoint

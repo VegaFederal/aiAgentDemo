@@ -1,0 +1,115 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: API Gateway for LLM agent
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - prod
+    Description: The deployment environment
+  
+  LlmAgentFunctionArn:
+    Type: String
+    Description: ARN of the LLM Agent Lambda function
+
+Resources:
+  # API Gateway for LLM Agent
+  LlmAgentApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub aiad-llm-api-${Environment}
+      Description: API for LLM Agent
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+      # Enable CORS
+      Body:
+        swagger: "2.0"
+        info:
+          version: "1.0"
+          title: "LLM Agent API"
+        paths:
+          /query:
+            options:
+              consumes:
+                - "application/json"
+              produces:
+                - "application/json"
+              responses:
+                "200":
+                  description: "200 response"
+                  headers:
+                    Access-Control-Allow-Origin:
+                      type: "string"
+                    Access-Control-Allow-Methods:
+                      type: "string"
+                    Access-Control-Allow-Headers:
+                      type: "string"
+              x-amazon-apigateway-integration:
+                responses:
+                  default:
+                    statusCode: "200"
+                    responseParameters:
+                      method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
+                      method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+                      method.response.header.Access-Control-Allow-Origin: "'*'"
+                requestTemplates:
+                  application/json: '{"statusCode": 200}'
+                passthroughBehavior: "when_no_match"
+                type: "mock"
+
+  # API Gateway Resource
+  LlmAgentResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref LlmAgentApi
+      ParentId: !GetAtt LlmAgentApi.RootResourceId
+      PathPart: 'query'
+
+  # Lambda Permission for API Gateway
+  LlmAgentPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref LlmAgentFunctionArn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${LlmAgentApi}/${Environment}/POST/query
+
+  # API Gateway Method
+  LlmAgentMethod:
+    Type: AWS::ApiGateway::Method
+    DependsOn: LlmAgentPermission
+    Properties:
+      RestApiId: !Ref LlmAgentApi
+      ResourceId: !Ref LlmAgentResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LlmAgentFunctionArn}/invocations
+      # Add CORS support
+      MethodResponses:
+        - StatusCode: '200'
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+
+  # API Gateway Deployment
+  LlmAgentDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: LlmAgentMethod
+    Properties:
+      RestApiId: !Ref LlmAgentApi
+      StageName: !Ref Environment
+
+Outputs:
+  LlmAgentApiEndpoint:
+    Description: API Gateway endpoint URL for LLM Agent
+    Value: !Sub https://${LlmAgentApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/query
+  
+  LlmAgentApiId:
+    Description: API Gateway ID
+    Value: !Ref LlmAgentApi

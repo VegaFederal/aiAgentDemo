@@ -429,7 +429,10 @@ Resources:
                   
                   return {
                       'statusCode': 200,
-                      'headers': {'Content-Type': 'application/json'},
+                      'headers': {
+                          'Content-Type': 'application/json',
+                          'Access-Control-Allow-Origin': '*'
+                      },
                       'body': json.dumps({
                           'response': response,
                           'context_used': len(context_docs)
@@ -440,104 +443,15 @@ Resources:
                   print(f"Error processing request: {str(e)}")
                   return {
                       'statusCode': 500,
-                      'headers': {'Content-Type': 'application/json'},
+                      'headers': {
+                          'Content-Type': 'application/json',
+                          'Access-Control-Allow-Origin': '*'
+                      },
                       'body': json.dumps({'error': str(e)})
                   }
       Tags:
         - Key: Environment
           Value: !Ref Environment
-
-  # API Gateway for LLM Agent
-  LlmAgentApi:
-    Type: AWS::ApiGateway::RestApi
-    Properties:
-      Name: !Sub aiad-llm-api-${Environment}
-      Description: API for LLM Agent
-      EndpointConfiguration:
-        Types:
-          - REGIONAL
-      # Enable CORS
-      Body:
-        swagger: "2.0"
-        info:
-          version: "1.0"
-          title: "LLM Agent API"
-        paths:
-          /query:
-            options:
-              consumes:
-                - "application/json"
-              produces:
-                - "application/json"
-              responses:
-                "200":
-                  description: "200 response"
-                  headers:
-                    Access-Control-Allow-Origin:
-                      type: "string"
-                    Access-Control-Allow-Methods:
-                      type: "string"
-                    Access-Control-Allow-Headers:
-                      type: "string"
-              x-amazon-apigateway-integration:
-                responses:
-                  default:
-                    statusCode: "200"
-                    responseParameters:
-                      method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
-                      method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
-                      method.response.header.Access-Control-Allow-Origin: "'*'"
-                requestTemplates:
-                  application/json: '{"statusCode": 200}'
-                passthroughBehavior: "when_no_match"
-                type: "mock"
-
-  # API Gateway Resource
-  LlmAgentResource:
-    Type: AWS::ApiGateway::Resource
-    Properties:
-      RestApiId: !Ref LlmAgentApi
-      ParentId: !GetAtt LlmAgentApi.RootResourceId
-      PathPart: 'query'
-
-  # Lambda Permission for API Gateway
-  LlmAgentPermission:
-    Type: AWS::Lambda::Permission
-    DependsOn: LlmAgentFunction
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref LlmAgentFunction
-      Principal: apigateway.amazonaws.com
-      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${LlmAgentApi}/${Environment}/POST/query
-
-  # API Gateway Method
-  LlmAgentMethod:
-    Type: AWS::ApiGateway::Method
-    DependsOn: 
-      - LlmAgentFunction
-      - LlmAgentPermission
-    Properties:
-      RestApiId: !Ref LlmAgentApi
-      ResourceId: !Ref LlmAgentResource
-      HttpMethod: POST
-      AuthorizationType: NONE
-      Integration:
-        Type: AWS_PROXY
-        IntegrationHttpMethod: POST
-        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LlmAgentFunction.Arn}/invocations
-      # Add CORS support
-      MethodResponses:
-        - StatusCode: '200'
-          ResponseParameters:
-            method.response.header.Access-Control-Allow-Origin: true
-
-  # API Gateway Deployment
-  LlmAgentDeployment:
-    Type: AWS::ApiGateway::Deployment
-    DependsOn: LlmAgentMethod
-    Properties:
-      RestApiId: !Ref LlmAgentApi
-      StageName: !Ref Environment
 
 Outputs:
   DocumentsBucketName:
@@ -548,10 +462,6 @@ Outputs:
     Description: DynamoDB Table for document embeddings
     Value: !Ref DocumentEmbeddingsTable
 
-  LlmAgentApiEndpoint:
-    Description: API Gateway endpoint URL for LLM Agent
-    Value: !Sub https://${LlmAgentApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/query
-
   DocumentProcessorFunctionName:
     Description: Lambda function for document processing
     Value: !Ref DocumentProcessorFunction
@@ -559,3 +469,7 @@ Outputs:
   LlmAgentFunctionName:
     Description: Lambda function for LLM Agent
     Value: !Ref LlmAgentFunction
+    
+  LlmAgentFunctionArn:
+    Description: ARN of the LLM Agent Lambda function
+    Value: !GetAtt LlmAgentFunction.Arn

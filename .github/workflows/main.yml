@@ -80,7 +80,7 @@ jobs:
         uses: aws-actions/aws-cloudformation-github-deploy@v1
         with:
           name: ${{ env.PROJECT_NAME }}
-          template: infrastructure/cloudformation/main.yaml
+          template: infrastructure/cloudformation/main-template.yaml
           parameter-overrides: >-
             ProjectName=${{ env.PROJECT_NAME }},
             Environment=dev,

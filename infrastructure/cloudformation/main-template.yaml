@@ -52,6 +52,7 @@ Resources:
       TemplateURL: ./templates/bedrock-lambda.yaml
       Parameters:
         Environment: !Ref Environment
+        DocumentsBucketName: !Sub ${AWS::StackName}-documents
       Tags:
         - Key: Environment
           Value: !Ref Environment

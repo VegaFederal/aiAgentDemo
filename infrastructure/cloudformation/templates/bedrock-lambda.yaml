@@ -10,13 +10,18 @@ Parameters:
       - test
       - prod
     Description: The deployment environment
+    
+  DocumentsBucketName:
+    Type: String
+    Default: ai-agent-documents
+    Description: Base name for the S3 bucket that will store documents
 
 Resources:
   # S3 Bucket for Document Storage - Created first without notifications
   DocumentsBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub ${AWS::StackName}-documents-${AWS::AccountId}-${Environment}
+      BucketName: !Sub ${DocumentsBucketName}-${AWS::AccountId}-${Environment}
       VersioningConfiguration:
         Status: Enabled
       BucketEncryption:

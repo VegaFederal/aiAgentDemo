@@ -50,11 +50,13 @@ jobs:
           VPC_ID=$(jq -r '.vpcId' $CONFIG_FILE)
           SUBNET_IDS=$(jq -r '.subnetIds' $CONFIG_FILE)
           AI_MODEL=$(jq -r '.aiModel' $CONFIG_FILE)
+          DOCUMENTS_BUCKET_NAME=$(jq -r '.documentsBucketName' $CONFIG_FILE)
 
           echo "PROJECT_NAME=$PROJECT_NAME" >> $GITHUB_ENV
           echo "VPC_ID=$VPC_ID" >> $GITHUB_ENV
           echo "SUBNET_IDS=$SUBNET_IDS" >> $GITHUB_ENV
           echo "AI_MODEL=$AI_MODEL" >> $GITHUB_ENV
+          echo "DOCUMENTS_BUCKET_NAME=$DOCUMENTS_BUCKET_NAME" >> $GITHUB_ENV
       - name: Create template bucket
         run: |
             TIMESTAMP=$(date +%s)
@@ -87,7 +89,8 @@ jobs:
           parameter-overrides: >-
             Environment=dev,
             VpcId=${{ env.VPC_ID }},
-            SubnetIds=${{ env.SUBNET_IDS }}
+            SubnetIds=${{ env.SUBNET_IDS }},
+            DocumentsBucketName=${{ env.DOCUMENTS_BUCKET_NAME || env.PROJECT_NAME }}-documents
           no-fail-on-empty-changeset: "1"
           capabilities: "CAPABILITY_NAMED_IAM"
 

@@ -492,7 +492,9 @@ Resources:
   # Update bucket with notifications after Lambda permission is created
   BucketNotificationConfiguration:
     Type: Custom::S3BucketNotification
-    DependsOn: DocumentProcessorPermission
+    DependsOn: 
+      - DocumentProcessorPermission
+      - BucketNotificationFunction
     Properties:
       ServiceToken: !GetAtt BucketNotificationFunction.Arn
       BucketName: !Ref DocumentsBucket
@@ -507,6 +509,8 @@ Resources:
                   - Name: suffix
                     Value: .html
             Function: !GetAtt DocumentProcessorFunction.Arn
+            # Use the function ARN directly to avoid reference issues
+            # Function: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:aiad-doc-processor-${Environment}"
 
   # Custom resource Lambda for S3 notifications
   BucketNotificationFunction:
@@ -521,9 +525,42 @@ Resources:
         ZipFile: |
           import json
           import boto3
-          import cfnresponse
+          import urllib.request
+          import urllib.parse
           
           s3 = boto3.client('s3')
+          
+          # Implementation of cfnresponse since it's not available in Lambda by default
+          def send_response(event, context, response_status, response_data):
+              response_body = {
+                  'Status': response_status,
+                  'Reason': f'See details in CloudWatch Log Stream: {context.log_stream_name}',
+                  'PhysicalResourceId': context.log_stream_name,
+                  'StackId': event['StackId'],
+                  'RequestId': event['RequestId'],
+                  'LogicalResourceId': event['LogicalResourceId'],
+                  'Data': response_data
+              }
+              
+              response_body_json = json.dumps(response_body)
+              headers = {
+                  'content-type': '',
+                  'content-length': str(len(response_body_json))
+              }
+              
+              req = urllib.request.Request(
+                  url=event['ResponseURL'],
+                  data=response_body_json.encode('utf-8'),
+                  headers=headers,
+                  method='PUT'
+              )
+              
+              try:
+                  with urllib.request.urlopen(req) as response:
+                      print(f"Status code: {response.status}")
+                      print(f"Status message: {response.reason}")
+              except Exception as e:
+                  print(f"Error sending response: {str(e)}")
           
           def handler(event, context):
               try:
@@ -531,7 +568,7 @@ Resources:
                   
                   request_type = event['RequestType']
                   if request_type == 'Delete':
-                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                      send_response(event, context, 'SUCCESS', {})
                       return
                   
                   props = event['ResourceProperties']
@@ -544,10 +581,10 @@ Resources:
                           NotificationConfiguration=notification
                       )
                   
-                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                  send_response(event, context, 'SUCCESS', {})
               except Exception as e:
                   print(f"Error: {str(e)}")
-                  cfnresponse.send(event, context, cfnresponse.FAILED, {"Error": str(e)})
+                  send_response(event, context, 'FAILED', {"Error": str(e)})
 
   # Role for bucket notification Lambda
   BucketNotificationRole:
@@ -570,7 +607,7 @@ Resources:
             Statement:
               - Effect: Allow
                 Action: s3:PutBucketNotificationConfiguration
-                Resource: !Sub arn:aws:s3:::${DocumentsBucket}
+                Resource: "*"  # Allow access to all buckets for notification configuration
 
 Outputs:
   DocumentsBucketName:

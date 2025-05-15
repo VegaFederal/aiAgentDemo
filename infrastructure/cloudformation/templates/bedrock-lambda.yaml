@@ -17,9 +17,10 @@ Parameters:
     Description: Base name for the S3 bucket that will store documents
 
 Resources:
-  # S3 Bucket for Document Storage - Created first without notifications
+  # S3 Bucket for Document Storage with notifications
   DocumentsBucket:
     Type: AWS::S3::Bucket
+    DependsOn: DocumentProcessorPermission
     Properties:
       BucketName: !Sub ${DocumentsBucketName}-${Environment}
       VersioningConfiguration:
@@ -28,6 +29,17 @@ Resources:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: AES256
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: suffix
+                    Value: .txt
+                  - Name: suffix
+                    Value: .html
+            Function: !GetAtt DocumentProcessorFunction.Arn
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -106,6 +118,15 @@ Resources:
                 Resource:
                   - !Sub arn:aws:s3:::${DocumentsBucket}
                   - !Sub arn:aws:s3:::${DocumentsBucket}/*
+
+  # Lambda Permission for S3
+  DocumentProcessorPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Sub aiad-doc-processor-${Environment}
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub arn:aws:s3:::${DocumentsBucketName}-${Environment}
 
   # Document Processor Lambda Function
   DocumentProcessorFunction:
@@ -270,15 +291,7 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
 
-  # Lambda Permission for S3
-  DocumentProcessorPermission:
-    Type: AWS::Lambda::Permission
-    DependsOn: DocumentProcessorFunction
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref DocumentProcessorFunction
-      Principal: s3.amazonaws.com
-      SourceArn: !Sub arn:aws:s3:::${DocumentsBucket}
+  # Lambda Permission is now defined above
 
   # LLM Agent Lambda Function
   LlmAgentFunction:
@@ -489,125 +502,7 @@ Resources:
       RestApiId: !Ref LlmAgentApi
       StageName: !Ref Environment
 
-  # Update bucket with notifications after Lambda permission is created
-  BucketNotificationConfiguration:
-    Type: Custom::S3BucketNotification
-    DependsOn: 
-      - DocumentProcessorPermission
-      - BucketNotificationFunction
-    Properties:
-      ServiceToken: !GetAtt BucketNotificationFunction.Arn
-      BucketName: !Ref DocumentsBucket
-      NotificationConfiguration:
-        LambdaFunctionConfigurations:
-          - Event: s3:ObjectCreated:*
-            Filter:
-              Key:
-                FilterRules:
-                  - Name: suffix
-                    Value: .txt
-                  - Name: suffix
-                    Value: .html
-            Function: !GetAtt DocumentProcessorFunction.Arn
-            # Use the function ARN directly to avoid reference issues
-            # Function: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:aiad-doc-processor-${Environment}"
-
-  # Custom resource Lambda for S3 notifications
-  BucketNotificationFunction:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: !Sub aiad-bucket-notifier-${Environment}
-      Handler: index.handler
-      Role: !GetAtt BucketNotificationRole.Arn
-      Runtime: python3.11
-      Timeout: 30
-      Code:
-        ZipFile: |
-          import json
-          import boto3
-          import urllib.request
-          import urllib.parse
-          
-          s3 = boto3.client('s3')
-          
-          # Implementation of cfnresponse since it's not available in Lambda by default
-          def send_response(event, context, response_status, response_data):
-              response_body = {
-                  'Status': response_status,
-                  'Reason': f'See details in CloudWatch Log Stream: {context.log_stream_name}',
-                  'PhysicalResourceId': context.log_stream_name,
-                  'StackId': event['StackId'],
-                  'RequestId': event['RequestId'],
-                  'LogicalResourceId': event['LogicalResourceId'],
-                  'Data': response_data
-              }
-              
-              response_body_json = json.dumps(response_body)
-              headers = {
-                  'content-type': '',
-                  'content-length': str(len(response_body_json))
-              }
-              
-              req = urllib.request.Request(
-                  url=event['ResponseURL'],
-                  data=response_body_json.encode('utf-8'),
-                  headers=headers,
-                  method='PUT'
-              )
-              
-              try:
-                  with urllib.request.urlopen(req) as response:
-                      print(f"Status code: {response.status}")
-                      print(f"Status message: {response.reason}")
-              except Exception as e:
-                  print(f"Error sending response: {str(e)}")
-          
-          def handler(event, context):
-              try:
-                  print(f"Received event: {json.dumps(event)}")
-                  
-                  request_type = event['RequestType']
-                  if request_type == 'Delete':
-                      send_response(event, context, 'SUCCESS', {})
-                      return
-                  
-                  props = event['ResourceProperties']
-                  bucket_name = props['BucketName']
-                  notification = props['NotificationConfiguration']
-                  
-                  if request_type == 'Create' or request_type == 'Update':
-                      s3.put_bucket_notification_configuration(
-                          Bucket=bucket_name,
-                          NotificationConfiguration=notification
-                      )
-                  
-                  send_response(event, context, 'SUCCESS', {})
-              except Exception as e:
-                  print(f"Error: {str(e)}")
-                  send_response(event, context, 'FAILED', {"Error": str(e)})
-
-  # Role for bucket notification Lambda
-  BucketNotificationRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub aiad-bucket-notifier-role-${Environment}
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: S3NotificationAccess
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action: s3:PutBucketNotificationConfiguration
-                Resource: "*"  # Allow access to all buckets for notification configuration
+  # Removed custom resource approach in favor of direct bucket notification configuration
 
 Outputs:
   DocumentsBucketName:

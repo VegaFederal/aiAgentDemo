@@ -71,10 +71,10 @@ jobs:
       - name: Create Lambda deployment package
         run: |
           cd src/lambda
-          zip -r lambdaAiHandler.zip lambdaAiHandler.py
+          zip -r lambda.zip *
           PROJECT_NAME_LOWER=$(echo "$PROJECT_NAME" | tr '[:upper:]' '[:lower:]')
           aws s3 mb s3://${PROJECT_NAME_LOWER}-dev-deployment || true
-          aws s3 cp lambdaAiHandler.zip s3://${PROJECT_NAME_LOWER}-dev-deployment/
+          aws s3 cp lambda.zip s3://${PROJECT_NAME_LOWER}-dev-deployment/
 
       - name: Deploy CloudFormation stack
         uses: aws-actions/aws-cloudformation-github-deploy@v1

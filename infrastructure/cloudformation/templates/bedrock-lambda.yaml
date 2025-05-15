@@ -17,33 +17,6 @@ Parameters:
     Description: Base name for the S3 bucket that will store documents
 
 Resources:
-  # S3 Bucket for Document Storage with notifications
-  DocumentsBucket:
-    Type: AWS::S3::Bucket
-    DependsOn: DocumentProcessorPermission
-    Properties:
-      BucketName: !Sub ${DocumentsBucketName}-${Environment}
-      VersioningConfiguration:
-        Status: Enabled
-      BucketEncryption:
-        ServerSideEncryptionConfiguration:
-          - ServerSideEncryptionByDefault:
-              SSEAlgorithm: AES256
-      NotificationConfiguration:
-        LambdaConfigurations:
-          - Event: s3:ObjectCreated:*
-            Filter:
-              S3Key:
-                Rules:
-                  - Name: suffix
-                    Value: .txt
-                  - Name: suffix
-                    Value: .html
-            Function: !GetAtt DocumentProcessorFunction.Arn
-      Tags:
-        - Key: Environment
-          Value: !Ref Environment
-
   # DynamoDB Table for Document Embeddings
   DocumentEmbeddingsTable:
     Type: AWS::DynamoDB::Table
@@ -116,17 +89,8 @@ Resources:
                   - s3:PutObject
                   - s3:ListBucket
                 Resource:
-                  - !Sub arn:aws:s3:::${DocumentsBucket}
-                  - !Sub arn:aws:s3:::${DocumentsBucket}/*
-
-  # Lambda Permission for S3
-  DocumentProcessorPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Sub aiad-doc-processor-${Environment}
-      Principal: s3.amazonaws.com
-      SourceArn: !Sub arn:aws:s3:::${DocumentsBucketName}-${Environment}
+                  - !Sub arn:aws:s3:::${DocumentsBucketName}-${Environment}
+                  - !Sub arn:aws:s3:::${DocumentsBucketName}-${Environment}/*
 
   # Document Processor Lambda Function
   DocumentProcessorFunction:
@@ -291,12 +255,49 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
 
-  # Lambda Permission is now defined above
+  # Lambda Permission for S3
+  DocumentProcessorPermission:
+    Type: AWS::Lambda::Permission
+    DependsOn: DocumentProcessorFunction
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref DocumentProcessorFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub arn:aws:s3:::${DocumentsBucketName}-${Environment}
+
+  # S3 Bucket for Document Storage with notifications
+  DocumentsBucket:
+    Type: AWS::S3::Bucket
+    DependsOn: DocumentProcessorPermission
+    Properties:
+      BucketName: !Sub ${DocumentsBucketName}-${Environment}
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: suffix
+                    Value: .txt
+                  - Name: suffix
+                    Value: .html
+            Function: !GetAtt DocumentProcessorFunction.Arn
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
 
   # LLM Agent Lambda Function
   LlmAgentFunction:
     Type: AWS::Lambda::Function
-    DependsOn: LambdaExecutionRole
+    DependsOn: 
+      - LambdaExecutionRole
+      - DocumentEmbeddingsTable
     Properties:
       FunctionName: !Sub aiad-llm-agent-${Environment}
       Handler: index.lambda_handler
@@ -470,20 +471,6 @@ Resources:
       ParentId: !GetAtt LlmAgentApi.RootResourceId
       PathPart: 'query'
 
-  # API Gateway Method
-  LlmAgentMethod:
-    Type: AWS::ApiGateway::Method
-    DependsOn: LlmAgentFunction
-    Properties:
-      RestApiId: !Ref LlmAgentApi
-      ResourceId: !Ref LlmAgentResource
-      HttpMethod: POST
-      AuthorizationType: NONE
-      Integration:
-        Type: AWS_PROXY
-        IntegrationHttpMethod: POST
-        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LlmAgentFunction.Arn}/invocations
-
   # Lambda Permission for API Gateway
   LlmAgentPermission:
     Type: AWS::Lambda::Permission
@@ -494,6 +481,22 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${LlmAgentApi}/${Environment}/POST/query
 
+  # API Gateway Method
+  LlmAgentMethod:
+    Type: AWS::ApiGateway::Method
+    DependsOn: 
+      - LlmAgentFunction
+      - LlmAgentPermission
+    Properties:
+      RestApiId: !Ref LlmAgentApi
+      ResourceId: !Ref LlmAgentResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LlmAgentFunction.Arn}/invocations
+
   # API Gateway Deployment
   LlmAgentDeployment:
     Type: AWS::ApiGateway::Deployment
@@ -501,8 +504,6 @@ Resources:
     Properties:
       RestApiId: !Ref LlmAgentApi
       StageName: !Ref Environment
-
-  # Removed custom resource approach in favor of direct bucket notification configuration
 
 Outputs:
   DocumentsBucketName:

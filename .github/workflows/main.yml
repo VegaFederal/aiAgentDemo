@@ -90,7 +90,7 @@ jobs:
             Environment=dev,
             VpcId=${{ env.VPC_ID }},
             SubnetIds=${{ env.SUBNET_IDS }},
-            DocumentsBucketName=${{ env.DOCUMENTS_BUCKET_NAME || env.PROJECT_NAME }}-documents
+            DocumentsBucketName=${{ env.DOCUMENTS_BUCKET_NAME }}
           no-fail-on-empty-changeset: "1"
           capabilities: "CAPABILITY_NAMED_IAM"
 

@@ -8,5 +8,5 @@
   "subnetIds": "subnet-02615277a84a5fcb4",
   "githubRepo": "https://github.com/VegaFederal/aiAgentDemo.git",
   "createdAt": "2025-05-14T18:41:41Z",
-  "documentsBucketName": "aiagentdemo-documents"
+  "documentsBucketName": "aiad-docs"
 }

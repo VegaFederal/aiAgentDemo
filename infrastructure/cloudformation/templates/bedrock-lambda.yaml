@@ -21,7 +21,7 @@ Resources:
   DocumentsBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub ${DocumentsBucketName}-${AWS::AccountId}-${Environment}
+      BucketName: !Sub ${DocumentsBucketName}-${Environment}
       VersioningConfiguration:
         Status: Enabled
       BucketEncryption:

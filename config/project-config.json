@@ -1,0 +1,11 @@
+{
+  "projectName": "aiAgentDemo",
+  "description": "Simple web app that will use an Agent in the background to augment requests. Far to be fed through Titan Embeded and consumed by Claude 3.5 Sonnet v2.",
+  "infraType": "cloudformation",
+  "applicationType": "serverless",
+  "awsRegion": "us-east-1",
+  "vpcId": "vpc-03de7ad5a4c7c1822",
+  "subnetIds": "subnet-02615277a84a5fcb4,subnet-005d1ad197eb59c2b",
+  "githubRepo": "https://github.com/VegaFederal/aiAgentDemo.git",
+  "createdAt": "2025-05-14T18:41:41Z"
+}

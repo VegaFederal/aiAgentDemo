@@ -1,0 +1,517 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Lambda functions and resources for LLM agent with Titan Embeddings and Claude 3.5 Sonnet V2
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - prod
+    Description: The deployment environment
+
+Resources:
+  # DynamoDB Table for Document Embeddings
+  DocumentEmbeddingsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${AWS::StackName}-DocumentEmbeddings
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: document_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: DocumentIdIndex
+          KeySchema:
+            - AttributeName: document_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  # S3 Bucket for Document Storage
+  DocumentsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${AWS::StackName}-documents-${AWS::AccountId}-${Environment}
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Lambda Execution Role
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: BedrockAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                Resource: 
+                  - !Sub arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-3-5-sonnet-20240620-v1:0
+                  - !Sub arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v1
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource: !GetAtt DocumentEmbeddingsTable.Arn
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt DocumentsBucket.Arn
+                  - !Sub ${DocumentsBucket.Arn}/*
+
+  # Document Processor Lambda Function
+  DocumentProcessorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-document-processor-${Environment}
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: python3.11
+      Timeout: 300
+      MemorySize: 512
+      Environment:
+        Variables:
+          EMBEDDINGS_TABLE: !Ref DocumentEmbeddingsTable
+          EMBEDDING_MODEL_ID: amazon.titan-embed-text-v1
+          CHUNK_SIZE: 1000
+          CHUNK_OVERLAP: 200
+      Code:
+        ZipFile: |
+          import json
+          import os
+          import boto3
+          import uuid
+          import re
+          
+          # Initialize AWS clients
+          s3 = boto3.client('s3')
+          bedrock = boto3.client('bedrock-runtime')
+          dynamodb = boto3.resource('dynamodb')
+          
+          # Environment variables
+          EMBEDDINGS_TABLE = os.environ.get('EMBEDDINGS_TABLE')
+          EMBEDDING_MODEL_ID = os.environ.get('EMBEDDING_MODEL_ID')
+          CHUNK_SIZE = int(os.environ.get('CHUNK_SIZE', '1000'))
+          CHUNK_OVERLAP = int(os.environ.get('CHUNK_OVERLAP', '200'))
+          
+          # Get table reference
+          embeddings_table = dynamodb.Table(EMBEDDINGS_TABLE)
+          
+          def extract_text(bucket, key):
+              """Extract text from a document in S3 based on file extension"""
+              file_obj = s3.get_object(Bucket=bucket, Key=key)
+              content = file_obj['Body'].read()
+              
+              # Determine file type from extension
+              file_extension = key.split('.')[-1].lower()
+              
+              if file_extension == 'txt':
+                  return content.decode('utf-8')
+              
+              elif file_extension == 'html' or file_extension == 'htm':
+                  # Simple HTML text extraction
+                  text = content.decode('utf-8')
+                  # Remove HTML tags
+                  text = re.sub(r'<[^>]+>', ' ', text)
+                  # Remove extra whitespace
+                  text = re.sub(r'\s+', ' ', text).strip()
+                  return text
+              
+              else:
+                  raise ValueError(f"Unsupported file type: {file_extension}")
+          
+          def chunk_text(text, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP):
+              """Split text into overlapping chunks of specified size"""
+              chunks = []
+              if len(text) <= chunk_size:
+                  chunks.append(text)
+              else:
+                  start = 0
+                  while start < len(text):
+                      end = min(start + chunk_size, len(text))
+                      # Try to find a natural break point
+                      if end < len(text):
+                          for break_char in ['\n\n', '\n', '. ', '? ', '! ']:
+                              break_pos = text.rfind(break_char, start, end)
+                              if break_pos > start:
+                                  end = break_pos + len(break_char)
+                                  break
+                      
+                      chunks.append(text[start:end].strip())
+                      start = end - chunk_overlap
+              
+              return chunks
+          
+          def generate_embedding(text):
+              """Generate embeddings for the given text using Amazon Titan"""
+              response = bedrock.invoke_model(
+                  modelId=EMBEDDING_MODEL_ID,
+                  body=json.dumps({
+                      "inputText": text
+                  })
+              )
+              response_body = json.loads(response['body'].read())
+              return response_body['embedding']
+          
+          def store_embedding(document_id, chunk_id, text_chunk, embedding, metadata):
+              """Store embedding and metadata in DynamoDB"""
+              item = {
+                  'id': f"{document_id}_{chunk_id}",
+                  'document_id': document_id,
+                  'chunk_id': chunk_id,
+                  'content': text_chunk,
+                  'embedding': embedding,
+                  'metadata': metadata
+              }
+              
+              embeddings_table.put_item(Item=item)
+          
+          def lambda_handler(event, context):
+              """Process documents from S3 and generate embeddings"""
+              try:
+                  # Get S3 bucket and key from event
+                  bucket = event['bucket']
+                  key = event['key']
+                  
+                  # Extract metadata if provided
+                  metadata = event.get('metadata', {})
+                  if not metadata:
+                      # Try to get some basic metadata from S3
+                      s3_metadata = s3.head_object(Bucket=bucket, Key=key).get('Metadata', {})
+                      metadata = {
+                          'filename': key.split('/')[-1],
+                          **s3_metadata
+                      }
+                  
+                  # Generate a document ID if not provided
+                  document_id = metadata.get('document_id', str(uuid.uuid4()))
+                  
+                  # Extract text from document
+                  text = extract_text(bucket, key)
+                  
+                  # Split text into chunks
+                  chunks = chunk_text(text)
+                  
+                  # Process each chunk
+                  for i, chunk in enumerate(chunks):
+                      # Generate embedding
+                      embedding = generate_embedding(chunk)
+                      
+                      # Store in DynamoDB
+                      store_embedding(document_id, i, chunk, embedding, metadata)
+                  
+                  return {
+                      'statusCode': 200,
+                      'body': json.dumps({
+                          'message': f'Successfully processed document {key}',
+                          'document_id': document_id,
+                          'chunks_processed': len(chunks)
+                      })
+                  }
+              
+              except Exception as e:
+                  print(f"Error processing document: {str(e)}")
+                  return {
+                      'statusCode': 500,
+                      'body': json.dumps({
+                          'message': f'Error processing document: {str(e)}'
+                      })
+                  }
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  # LLM Agent Lambda Function
+  LlmAgentFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-llm-agent-${Environment}
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: python3.11
+      Timeout: 60
+      MemorySize: 512
+      Environment:
+        Variables:
+          EMBEDDINGS_TABLE: !Ref DocumentEmbeddingsTable
+          EMBEDDING_MODEL_ID: amazon.titan-embed-text-v1
+          LLM_MODEL_ID: anthropic.claude-3-5-sonnet-20240620-v1:0
+          SIMILARITY_THRESHOLD: 0.7
+          MAX_CONTEXT_DOCS: 5
+      Code:
+        ZipFile: |
+          import json
+          import os
+          import boto3
+          import numpy as np
+          
+          # Initialize AWS clients
+          bedrock = boto3.client('bedrock-runtime')
+          dynamodb = boto3.resource('dynamodb')
+          
+          # Get environment variables
+          EMBEDDINGS_TABLE = os.environ.get('EMBEDDINGS_TABLE')
+          EMBEDDING_MODEL_ID = os.environ.get('EMBEDDING_MODEL_ID')
+          LLM_MODEL_ID = os.environ.get('LLM_MODEL_ID')
+          SIMILARITY_THRESHOLD = float(os.environ.get('SIMILARITY_THRESHOLD', '0.7'))
+          MAX_CONTEXT_DOCS = int(os.environ.get('MAX_CONTEXT_DOCS', '5'))
+          
+          # Get table reference
+          embeddings_table = dynamodb.Table(EMBEDDINGS_TABLE)
+          
+          def generate_embedding(text):
+              """Generate embeddings for the given text using Amazon Titan"""
+              response = bedrock.invoke_model(
+                  modelId=EMBEDDING_MODEL_ID,
+                  body=json.dumps({
+                      "inputText": text
+                  })
+              )
+              response_body = json.loads(response['body'].read())
+              return response_body['embedding']
+          
+          def cosine_similarity(vec_a, vec_b):
+              """Calculate cosine similarity between two vectors"""
+              dot_product = sum(a * b for a, b in zip(vec_a, vec_b))
+              norm_a = sum(a * a for a in vec_a) ** 0.5
+              norm_b = sum(b * b for b in vec_b) ** 0.5
+              return dot_product / (norm_a * norm_b)
+          
+          def retrieve_relevant_context(query_embedding):
+              """Retrieve relevant documents based on embedding similarity"""
+              # In a real implementation, you would use a vector database
+              # This is a simplified version that scans the DynamoDB table
+              response = embeddings_table.scan()
+              items = response.get('Items', [])
+              
+              # Calculate similarity for each document
+              similarities = []
+              for item in items:
+                  doc_embedding = item['embedding']
+                  similarity = cosine_similarity(query_embedding, doc_embedding)
+                  if similarity >= SIMILARITY_THRESHOLD:
+                      similarities.append({
+                          'document_id': item['document_id'],
+                          'content': item['content'],
+                          'similarity': similarity
+                      })
+              
+              # Sort by similarity (highest first) and take top N
+              similarities.sort(key=lambda x: x['similarity'], reverse=True)
+              return similarities[:MAX_CONTEXT_DOCS]
+          
+          def call_claude(query, context_docs, question_type=None):
+              """Call Claude 3.5 Sonnet with the query and context"""
+              # Prepare context from retrieved documents
+              context_text = "\n\n".join([doc['content'] for doc in context_docs])
+              
+              # Prepare the prompt for Claude
+              system_prompt = """You are a helpful AI assistant answering questions based on the provided context.
+              Only use information from the context to answer the question. If the context doesn't contain the answer, say you don't know."""
+              
+              # Add instructions based on question type
+              if question_type == 'multiple_choice':
+                  system_prompt += "\nThis is a multiple choice question. Provide the letter of the correct answer."
+              elif question_type == 'yes_no':
+                  system_prompt += "\nThis is a yes/no question. Answer with 'Yes' or 'No' followed by an explanation."
+              elif question_type == 'true_false':
+                  system_prompt += "\nThis is a true/false question. Answer with 'True' or 'False' followed by an explanation."
+              
+              # Create the message for Claude
+              messages = [
+                  {"role": "system", "content": system_prompt},
+                  {"role": "user", "content": f"Context:\n{context_text}\n\nQuestion: {query}"}
+              ]
+              
+              # Call Claude
+              response = bedrock.invoke_model(
+                  modelId=LLM_MODEL_ID,
+                  body=json.dumps({
+                      "anthropic_version": "bedrock-2023-05-31",
+                      "max_tokens": 1000,
+                      "messages": messages
+                  })
+              )
+              
+              response_body = json.loads(response['body'].read())
+              return response_body['content'][0]['text']
+          
+          def lambda_handler(event, context):
+              """Handle API Gateway requests for the LLM agent"""
+              try:
+                  # Parse request body
+                  body = json.loads(event.get('body', '{}'))
+                  query = body.get('query')
+                  question_type = body.get('question_type')  # multiple_choice, yes_no, true_false, or null
+                  
+                  if not query:
+                      return {
+                          'statusCode': 400,
+                          'headers': {'Content-Type': 'application/json'},
+                          'body': json.dumps({'error': 'Missing query parameter'})
+                      }
+                  
+                  # Generate embedding for the query
+                  query_embedding = generate_embedding(query)
+                  
+                  # Retrieve relevant context
+                  context_docs = retrieve_relevant_context(query_embedding)
+                  
+                  # Call Claude with the query and context
+                  response = call_claude(query, context_docs, question_type)
+                  
+                  return {
+                      'statusCode': 200,
+                      'headers': {'Content-Type': 'application/json'},
+                      'body': json.dumps({
+                          'response': response,
+                          'context_used': len(context_docs)
+                      })
+                  }
+              
+              except Exception as e:
+                  print(f"Error processing request: {str(e)}")
+                  return {
+                      'statusCode': 500,
+                      'headers': {'Content-Type': 'application/json'},
+                      'body': json.dumps({'error': str(e)})
+                  }
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  # API Gateway for LLM Agent
+  LlmAgentApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub ${AWS::StackName}-llm-agent-api-${Environment}
+      Description: API for LLM Agent
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  # API Gateway Resource
+  LlmAgentResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref LlmAgentApi
+      ParentId: !GetAtt LlmAgentApi.RootResourceId
+      PathPart: 'query'
+
+  # API Gateway Method
+  LlmAgentMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref LlmAgentApi
+      ResourceId: !Ref LlmAgentResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LlmAgentFunction.Arn}/invocations
+
+  # API Gateway Deployment
+  LlmAgentDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: LlmAgentMethod
+    Properties:
+      RestApiId: !Ref LlmAgentApi
+      StageName: !Ref Environment
+
+  # Lambda Permission for API Gateway
+  LlmAgentPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref LlmAgentFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${LlmAgentApi}/${Environment}/POST/query
+
+  # S3 Event Notification for Document Processing
+  DocumentBucketNotification:
+    Type: AWS::S3::BucketNotification
+    Properties:
+      Bucket: !Ref DocumentsBucket
+      LambdaConfigurations:
+        - Event: s3:ObjectCreated:*
+          Filter:
+            S3Key:
+              Rules:
+                - Name: suffix
+                  Value: .txt
+                - Name: suffix
+                  Value: .html
+          Function: !GetAtt DocumentProcessorFunction.Arn
+
+  # Lambda Permission for S3
+  DocumentProcessorPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref DocumentProcessorFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !GetAtt DocumentsBucket.Arn
+
+Outputs:
+  DocumentsBucketName:
+    Description: S3 Bucket for document storage
+    Value: !Ref DocumentsBucket
+
+  DocumentEmbeddingsTableName:
+    Description: DynamoDB Table for document embeddings
+    Value: !Ref DocumentEmbeddingsTable
+
+  LlmAgentApiEndpoint:
+    Description: API Gateway endpoint URL for LLM Agent
+    Value: !Sub https://${LlmAgentApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/query
+
+  DocumentProcessorFunctionName:
+    Description: Lambda function for document processing
+    Value: !Ref DocumentProcessorFunction
+
+  LlmAgentFunctionName:
+    Description: Lambda function for LLM Agent
+    Value: !Ref LlmAgentFunction

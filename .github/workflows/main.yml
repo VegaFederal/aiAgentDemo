@@ -67,7 +67,10 @@ jobs:
             aws s3 mb s3://$TEMPLATE_BUCKET
 
       - name: Upload templates to S3
-        run: aws s3 sync infrastructure/cloudformation/templates/ s3://$TEMPLATE_BUCKET/templates/
+        run: |
+          aws s3 sync infrastructure/cloudformation/templates/ s3://$TEMPLATE_BUCKET/templates/
+          # Update template URLs in main-template.yaml to use S3 paths
+          sed -i "s|TemplateURL: ./templates/|TemplateURL: https://s3.amazonaws.com/$TEMPLATE_BUCKET/templates/|g" infrastructure/cloudformation/main-template.yaml
       - name: Create Lambda deployment package
         run: |
           cd src/lambda
@@ -82,19 +85,16 @@ jobs:
           name: ${{ env.PROJECT_NAME }}
           template: infrastructure/cloudformation/main-template.yaml
           parameter-overrides: >-
-            ProjectName=${{ env.PROJECT_NAME }},
             Environment=dev,
             VpcId=${{ env.VPC_ID }},
-            SubnetIds=${{ env.SUBNET_IDS }},
-            TemplateBucket=${{ env.TEMPLATE_BUCKET }},
-            AiModelId=${{ env.AI_MODEL }}
+            SubnetIds=${{ env.SUBNET_IDS }}
           no-fail-on-empty-changeset: "1"
           capabilities: "CAPABILITY_NAMED_IAM"
 
       - name: Upload website files
         run: |
           BUCKET_NAME=$(aws cloudformation describe-stacks --stack-name ${{ env.PROJECT_NAME }} --query "Stacks[0].Outputs[?OutputKey=='WebsiteBucketName'].OutputValue" --output text)
-          aws s3 sync src/website/ s3://$BUCKET_NAME/
+          aws s3 sync src/web/ s3://$BUCKET_NAME/
 
       - name: Get CloudFront URL
         run: |

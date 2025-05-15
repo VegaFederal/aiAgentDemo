@@ -13,7 +13,7 @@ Parameters:
     
   DocumentsBucketName:
     Type: String
-    Default: ai-agent-documents
+    Default: aiad-docs
     Description: Base name for the S3 bucket that will store documents
 
 Resources:
@@ -36,7 +36,7 @@ Resources:
   DocumentEmbeddingsTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: !Sub ${AWS::StackName}-DocumentEmbeddings
+      TableName: !Sub aiad-embeddings-${Environment}
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - AttributeName: id
@@ -61,6 +61,7 @@ Resources:
   LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: !Sub aiad-lambda-role-${Environment}
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -111,7 +112,7 @@ Resources:
     Type: AWS::Lambda::Function
     DependsOn: LambdaExecutionRole
     Properties:
-      FunctionName: !Sub ${AWS::StackName}-document-processor-${Environment}
+      FunctionName: !Sub aiad-doc-processor-${Environment}
       Handler: index.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
       Runtime: python3.11
@@ -284,7 +285,7 @@ Resources:
     Type: AWS::Lambda::Function
     DependsOn: LambdaExecutionRole
     Properties:
-      FunctionName: !Sub ${AWS::StackName}-llm-agent-${Environment}
+      FunctionName: !Sub aiad-llm-agent-${Environment}
       Handler: index.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
       Runtime: python3.11
@@ -442,7 +443,7 @@ Resources:
   LlmAgentApi:
     Type: AWS::ApiGateway::RestApi
     Properties:
-      Name: !Sub ${AWS::StackName}-llm-agent-api-${Environment}
+      Name: !Sub aiad-llm-api-${Environment}
       Description: API for LLM Agent
       EndpointConfiguration:
         Types:
@@ -511,6 +512,7 @@ Resources:
   BucketNotificationFunction:
     Type: AWS::Lambda::Function
     Properties:
+      FunctionName: !Sub aiad-bucket-notifier-${Environment}
       Handler: index.handler
       Role: !GetAtt BucketNotificationRole.Arn
       Runtime: python3.11
@@ -551,6 +553,7 @@ Resources:
   BucketNotificationRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: !Sub aiad-bucket-notifier-role-${Environment}
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:

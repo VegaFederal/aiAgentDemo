@@ -37,21 +37,6 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
 
-  # S3 Bucket for Document Storage
-  DocumentsBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Sub ${AWS::StackName}-documents-${AWS::AccountId}-${Environment}
-      VersioningConfiguration:
-        Status: Enabled
-      BucketEncryption:
-        ServerSideEncryptionConfiguration:
-          - ServerSideEncryptionByDefault:
-              SSEAlgorithm: AES256
-      Tags:
-        - Key: Environment
-          Value: !Ref Environment
-
   # Lambda Execution Role
   LambdaExecutionRole:
     Type: AWS::IAM::Role
@@ -212,18 +197,18 @@ Resources:
               """Process documents from S3 and generate embeddings"""
               try:
                   # Get S3 bucket and key from event
-                  bucket = event['bucket']
-                  key = event['key']
+                  record = event['Records'][0]
+                  bucket = record['s3']['bucket']['name']
+                  key = record['s3']['object']['key']
                   
                   # Extract metadata if provided
-                  metadata = event.get('metadata', {})
-                  if not metadata:
-                      # Try to get some basic metadata from S3
-                      s3_metadata = s3.head_object(Bucket=bucket, Key=key).get('Metadata', {})
-                      metadata = {
-                          'filename': key.split('/')[-1],
-                          **s3_metadata
-                      }
+                  metadata = {}
+                  # Try to get some basic metadata from S3
+                  s3_metadata = s3.head_object(Bucket=bucket, Key=key).get('Metadata', {})
+                  metadata = {
+                      'filename': key.split('/')[-1],
+                      **s3_metadata
+                  }
                   
                   # Generate a document ID if not provided
                   document_id = metadata.get('document_id', str(uuid.uuid4()))
@@ -259,6 +244,42 @@ Resources:
                           'message': f'Error processing document: {str(e)}'
                       })
                   }
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Lambda Permission for S3
+  DocumentProcessorPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref DocumentProcessorFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !GetAtt DocumentsBucket.Arn
+
+  # S3 Bucket for Document Storage
+  DocumentsBucket:
+    Type: AWS::S3::Bucket
+    DependsOn: DocumentProcessorPermission
+    Properties:
+      BucketName: !Sub ${AWS::StackName}-documents-${AWS::AccountId}-${Environment}
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: suffix
+                    Value: .txt
+                  - Name: suffix
+                    Value: .html
+            Function: !GetAtt DocumentProcessorFunction.Arn
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -469,31 +490,6 @@ Resources:
       FunctionName: !Ref LlmAgentFunction
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${LlmAgentApi}/${Environment}/POST/query
-
-  # S3 Event Notification for Document Processing
-  DocumentBucketNotification:
-    Type: AWS::S3::BucketNotification
-    Properties:
-      Bucket: !Ref DocumentsBucket
-      LambdaConfigurations:
-        - Event: s3:ObjectCreated:*
-          Filter:
-            S3Key:
-              Rules:
-                - Name: suffix
-                  Value: .txt
-                - Name: suffix
-                  Value: .html
-          Function: !GetAtt DocumentProcessorFunction.Arn
-
-  # Lambda Permission for S3
-  DocumentProcessorPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref DocumentProcessorFunction
-      Principal: s3.amazonaws.com
-      SourceArn: !GetAtt DocumentsBucket.Arn
 
 Outputs:
   DocumentsBucketName:

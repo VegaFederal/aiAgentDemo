@@ -152,7 +152,8 @@ Resources:
                   return text
               
               else:
-                  raise ValueError(f"Unsupported file type: {file_extension}")
+                  print(f"Skipping unsupported file type: {file_extension}")
+                  return ""  # Return empty string for unsupported files
           
           def chunk_text(text, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP):
               """Split text into overlapping chunks of specified size"""
@@ -280,13 +281,6 @@ Resources:
       NotificationConfiguration:
         LambdaConfigurations:
           - Event: s3:ObjectCreated:*
-            Filter:
-              S3Key:
-                Rules:
-                  - Name: suffix
-                    Value: .txt
-                  - Name: suffix
-                    Value: .html
             Function: !GetAtt DocumentProcessorFunction.Arn
       Tags:
         - Key: Environment

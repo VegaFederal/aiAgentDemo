@@ -80,9 +80,11 @@ def call_claude(query, context_docs, question_type=None):
         {"role": "user", "content": f"Context:\n{context_text}\n\nQuestion: {query}"}
     ]
     
-    # Call Claude
+    # Call Claude with inference profile
     response = bedrock.invoke_model(
         modelId=LLM_MODEL_ID,
+        contentType="application/json",
+        accept="application/json",
         body=json.dumps({
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": 1000,
@@ -92,6 +94,7 @@ def call_claude(query, context_docs, question_type=None):
     
     response_body = json.loads(response['body'].read())
     return response_body['content'][0]['text']
+
 
 def lambda_handler(event, context):
     """Handle API Gateway requests for the LLM agent"""

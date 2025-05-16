@@ -76,7 +76,7 @@ Resources:
                   - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-*"
                   - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.anthropic.claude-3-5-sonnet-20241022-v2:0"
                   - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0"
-                  - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v1"
+                  - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v2:0"
 
         - PolicyName: DynamoDBAccess
           PolicyDocument:
@@ -116,7 +116,7 @@ Resources:
       Environment:
         Variables:
           EMBEDDINGS_TABLE: !Ref DocumentEmbeddingsTable
-          EMBEDDING_MODEL_ID: amazon.titan-embed-text-v1
+          EMBEDDING_MODEL_ID: amazon.titan-embed-text-v2:0
           CHUNK_SIZE: 1000
           CHUNK_OVERLAP: 200
       Code:
@@ -274,7 +274,7 @@ Resources:
       Environment:
         Variables:
           EMBEDDINGS_TABLE: !Ref DocumentEmbeddingsTable
-          EMBEDDING_MODEL_ID: amazon.titan-embed-text-v1
+          EMBEDDING_MODEL_ID: amazon.titan-embed-text-v2:0
           LLM_MODEL_ID: "arn:aws:bedrock:us-east-1:879961718230:inference-profile/us.anthropic.claude-3-5-sonnet-20241022-v2:0"
           SIMILARITY_THRESHOLD: 0.7
           MAX_CONTEXT_DOCS: 5

@@ -54,21 +54,6 @@ Resources:
       Tags:
         - Key: Environment
           Value: !Ref Environment
-          
-  # CDN Stack
-  CdnStack:
-    Type: AWS::CloudFormation::Stack
-    DependsOn: [StaticWebsiteStack, ApiGatewayStack]
-    Properties:
-      TemplateURL: ./templates/cdn.yaml
-      Parameters:
-        ProjectName: !Ref AWS::StackName
-        Environment: !Ref Environment
-        WebsiteBucketName: !GetAtt StaticWebsiteStack.Outputs.WebsiteBucketName
-        ApiEndpoint: !GetAtt ApiGatewayStack.Outputs.LlmAgentApiEndpoint
-      Tags:
-        - Key: Environment
-          Value: !Ref Environment
 
   # Bedrock and Lambda Stack
   BedrockLambdaStack:
@@ -96,16 +81,17 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
           
-  # Bucket Notifications Stack
-  BucketNotificationsStack:
+  # CDN Stack
+  CdnStack:
     Type: AWS::CloudFormation::Stack
-    DependsOn: [BedrockLambdaStack]
+    DependsOn: [StaticWebsiteStack, ApiGatewayStack]
     Properties:
-      TemplateURL: ./templates/bucket-notifications.yaml
+      TemplateURL: ./templates/cdn.yaml
       Parameters:
+        ProjectName: !Ref AWS::StackName
         Environment: !Ref Environment
-        DocumentsBucketName: !GetAtt BedrockLambdaStack.Outputs.DocumentsBucketName
-        DocumentProcessorFunctionArn: !GetAtt BedrockLambdaStack.Outputs.DocumentProcessorFunctionName
+        WebsiteBucketName: !GetAtt StaticWebsiteStack.Outputs.WebsiteBucketName
+        ApiEndpoint: !GetAtt ApiGatewayStack.Outputs.LlmAgentApiEndpoint
       Tags:
         - Key: Environment
           Value: !Ref Environment

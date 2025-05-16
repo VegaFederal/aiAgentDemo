@@ -53,7 +53,7 @@ Resources:
           - DomainName: !Sub ${WebsiteBucketName}.s3.amazonaws.com
             Id: S3Origin
             S3OriginConfig:
-              OriginAccessIdentity: !Sub origin-access-identity/cloudfront/${CloudFrontOriginAccessIdentity}
+              OriginAccessIdentity: !Sub origin-access-identity/cloudfront/${CloudFrontOAI}
           - DomainName: !Select [2, !Split ["/", !Ref ApiEndpoint]]
             Id: ApiOrigin
             CustomOriginConfig:

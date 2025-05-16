@@ -130,6 +130,10 @@ Resources:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: AES256
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: "s3:ObjectCreated:*"
+            Function: !GetAtt DocumentProcessorFunction.Arn
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -143,22 +147,6 @@ Resources:
       FunctionName: !Ref DocumentProcessorFunction
       Principal: s3.amazonaws.com
       SourceArn: !Sub arn:aws:s3:::${DocumentsBucketName}-${Environment}
-
-  # Configure S3 Bucket Notifications using a Custom Resource
-  ConfigureBucketNotifications:
-    Type: Custom::S3BucketNotification
-    DependsOn:
-      - DocumentsBucket
-      - DocumentProcessorFunction
-      - DocumentProcessorPermission
-      - NotificationConfigFunction
-    Properties:
-      ServiceToken: !GetAtt NotificationConfigFunction.Arn
-      BucketName: !Ref DocumentsBucket
-      NotificationConfiguration:
-        LambdaFunctionConfigurations:
-          - Event: "s3:ObjectCreated:*"
-            Function: !GetAtt DocumentProcessorFunction.Arn
 
   # Custom Resource Lambda Function for S3 Bucket Notifications
   NotificationConfigFunction:

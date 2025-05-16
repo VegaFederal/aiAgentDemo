@@ -1,6 +1,11 @@
 import json
 import os
 import boto3
+import logging
+
+# Configure logging
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 # Initialize AWS clients
 bedrock = boto3.client('bedrock-runtime')
@@ -13,11 +18,15 @@ LLM_MODEL_ID = os.environ.get('LLM_MODEL_ID')
 SIMILARITY_THRESHOLD = float(os.environ.get('SIMILARITY_THRESHOLD', '0.7'))
 MAX_CONTEXT_DOCS = int(os.environ.get('MAX_CONTEXT_DOCS', '5'))
 
+# Log configuration
+logger.info(f"Configuration: EMBEDDINGS_TABLE={EMBEDDINGS_TABLE}, EMBEDDING_MODEL_ID={EMBEDDING_MODEL_ID}, LLM_MODEL_ID={LLM_MODEL_ID}")
+
 # Get table reference
 embeddings_table = dynamodb.Table(EMBEDDINGS_TABLE)
 
 def generate_embedding(text):
     """Generate embeddings for the given text using Amazon Titan"""
+    logger.info(f"Generating embedding for text of length {len(text)}")
     response = bedrock.invoke_model(
         modelId=EMBEDDING_MODEL_ID,
         body=json.dumps({
@@ -25,6 +34,7 @@ def generate_embedding(text):
         })
     )
     response_body = json.loads(response['body'].read())
+    logger.info(f"Generated embedding of dimension {len(response_body['embedding'])}")
     return response_body['embedding']
 
 def cosine_similarity(vec_a, vec_b):
@@ -36,10 +46,12 @@ def cosine_similarity(vec_a, vec_b):
 
 def retrieve_relevant_context(query_embedding):
     """Retrieve relevant documents based on embedding similarity"""
+    logger.info("Retrieving relevant context from DynamoDB")
     # In a real implementation, you would use a vector database
     # This is a simplified version that scans the DynamoDB table
     response = embeddings_table.scan()
     items = response.get('Items', [])
+    logger.info(f"Found {len(items)} items in DynamoDB")
     
     # Calculate similarity for each document
     similarities = []
@@ -55,12 +67,15 @@ def retrieve_relevant_context(query_embedding):
     
     # Sort by similarity (highest first) and take top N
     similarities.sort(key=lambda x: x['similarity'], reverse=True)
-    return similarities[:MAX_CONTEXT_DOCS]
+    selected_docs = similarities[:MAX_CONTEXT_DOCS]
+    logger.info(f"Selected {len(selected_docs)} relevant documents with similarities: {[round(doc['similarity'], 3) for doc in selected_docs]}")
+    return selected_docs
 
 def call_claude(query, context_docs, question_type=None):
     """Call Claude 3.5 Sonnet with the query and context"""
     # Prepare context from retrieved documents
     context_text = "\n\n".join([doc['content'] for doc in context_docs])
+    logger.info(f"Calling Claude with context length {len(context_text)} and question type {question_type}")
     
     # Prepare the prompt for Claude
     system_prompt = """You are a helpful AI assistant answering questions based on the provided context.
@@ -81,30 +96,42 @@ def call_claude(query, context_docs, question_type=None):
     ]
     
     # Call Claude with inference profile
-    response = bedrock.invoke_model(
-        modelId=LLM_MODEL_ID,
-        contentType="application/json",
-        accept="application/json",
-        body=json.dumps({
-            "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 1000,
-            "messages": messages
-        })
-    )
-    
-    response_body = json.loads(response['body'].read())
-    return response_body['content'][0]['text']
-
+    try:
+        logger.info(f"Invoking Bedrock model: {LLM_MODEL_ID}")
+        logger.info(f"Sending {len(messages)} messages to Claude")
+        logger.info(f"Sending {{messages}} to Claude")
+        response = bedrock.invoke_model(
+            modelId=LLM_MODEL_ID,
+            contentType="application/json",
+            accept="application/json",
+            body=json.dumps({
+                "anthropic_version": "bedrock-2023-05-31",
+                "max_tokens": 1000,
+                "messages": messages
+            })
+        )
+        
+        response_body = json.loads(response['body'].read())
+        response_text = response_body['content'][0]['text']
+        logger.info(f"Received response of length {len(response_text)}")
+        return response_text
+    except Exception as e:
+        logger.error(f"Error calling Claude: {str(e)}")
+        raise
 
 def lambda_handler(event, context):
     """Handle API Gateway requests for the LLM agent"""
+    logger.info(f"Received event: {json.dumps(event)}")
     try:
         # Parse request body
         body = json.loads(event.get('body', '{}'))
         query = body.get('query')
         question_type = body.get('question_type')  # multiple_choice, yes_no, true_false, or null
         
+        logger.info(f"Processing query: '{query}' with question_type: {question_type}")
+        
         if not query:
+            logger.warning("Missing query parameter")
             return {
                 'statusCode': 400,
                 'headers': {'Content-Type': 'application/json'},
@@ -120,6 +147,7 @@ def lambda_handler(event, context):
         # Call Claude with the query and context
         response = call_claude(query, context_docs, question_type)
         
+        logger.info("Successfully processed request")
         return {
             'statusCode': 200,
             'headers': {
@@ -133,7 +161,7 @@ def lambda_handler(event, context):
         }
     
     except Exception as e:
-        print(f"Error processing request: {str(e)}")
+        logger.error(f"Error processing request: {str(e)}", exc_info=True)
         return {
             'statusCode': 500,
             'headers': {

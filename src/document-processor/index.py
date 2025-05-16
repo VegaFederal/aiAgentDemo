@@ -3,6 +3,9 @@ import os
 import boto3
 import uuid
 import re
+import zipfile
+import io
+import tempfile
 
 # Initialize AWS clients
 s3 = boto3.client('s3')
@@ -38,9 +41,52 @@ def extract_text(bucket, key):
         text = re.sub(r'\s+', ' ', text).strip()
         return text
     
+    elif file_extension == 'zip':
+        # Process ZIP file
+        return process_zip_file(content, key)
+    
     else:
         print(f"Skipping unsupported file type: {file_extension}")
         return ""  # Return empty string for unsupported files
+
+def process_zip_file(zip_content, key):
+    """Process a ZIP file and extract text from all HTML files"""
+    print(f"Processing ZIP file: {key}")
+    
+    # Create a temporary directory to extract files
+    with tempfile.TemporaryDirectory() as temp_dir:
+        zip_path = os.path.join(temp_dir, "archive.zip")
+        
+        # Write the ZIP content to a file
+        with open(zip_path, 'wb') as f:
+            f.write(zip_content)
+        
+        # Extract all files
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(temp_dir)
+        
+        # Process each file in the ZIP
+        all_text = []
+        for root, dirs, files in os.walk(temp_dir):
+            for file in files:
+                if file.endswith(('.html', '.htm', '.txt')):
+                    file_path = os.path.join(root, file)
+                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        try:
+                            content = f.read()
+                            if file.endswith(('.html', '.htm')):
+                                # Remove HTML tags
+                                content = re.sub(r'<[^>]+>', ' ', content)
+                                # Remove extra whitespace
+                                content = re.sub(r'\s+', ' ', content).strip()
+                            
+                            # Add filename as header
+                            all_text.append(f"File: {file}\n\n{content}")
+                        except Exception as e:
+                            print(f"Error processing file {file}: {str(e)}")
+    
+    # Combine all text with separators
+    return "\n\n---\n\n".join(all_text)
 
 def chunk_text(text, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP):
     """Split text into overlapping chunks of specified size"""
@@ -95,6 +141,8 @@ def lambda_handler(event, context):
         record = event['Records'][0]
         bucket = record['s3']['bucket']['name']
         key = record['s3']['object']['key']
+        
+        print(f"Processing file: {key} from bucket: {bucket}")
         
         # Extract metadata if provided
         metadata = {}

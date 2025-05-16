@@ -128,7 +128,7 @@ def store_embedding(document_id, chunk_id, text_chunk, embedding, metadata):
         'document_id': document_id,
         'chunk_id': chunk_id,
         'content': text_chunk,
-        'embedding': embedding,
+        'embedding_json': json.dumps(embedding),  # Store as JSON string
         'metadata': metadata
     }
     

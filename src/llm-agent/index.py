@@ -56,7 +56,8 @@ def retrieve_relevant_context(query_embedding):
     # Calculate similarity for each document
     similarities = []
     for item in items:
-        doc_embedding = item['embedding']
+        # In the llm-agent code where you retrieve embeddings
+        doc_embedding = json.loads(item['embedding_json'])
         similarity = cosine_similarity(query_embedding, doc_embedding)
         if similarity >= SIMILARITY_THRESHOLD:
             similarities.append({

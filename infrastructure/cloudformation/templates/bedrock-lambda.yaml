@@ -72,18 +72,12 @@ Resources:
                   - bedrock:GetInferenceProfile
                   - bedrock:ListInferenceProfiles
                 Resource: 
-                  - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/${ModelId}"
                   - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/*"
                   - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-*"
                   - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.anthropic.claude-3-5-sonnet-20241022-v2:0"
                   - !Sub "arn:aws:bedrock:us-east-1:879961718230:inference-profile/us.anthropic.claude-3-5-sonnet-20241022-v2:0"
                   - !Sub "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0"
                   - !Sub "arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0"
-              - Effect: Allow
-                Action:
-                  - bedrock:InvokeModel
-                  - bedrock:InvokeModelWithResponseStream
-                Resource: "*"
 
         - PolicyName: DynamoDBAccess
           PolicyDocument:

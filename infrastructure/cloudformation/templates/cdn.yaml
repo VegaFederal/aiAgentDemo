@@ -25,7 +25,7 @@ Parameters:
 
 Resources:
   CloudFrontOAI:
-    Type: AWS::CloudFront::CloudFrontOAI
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
     Properties:
       CloudFrontOriginAccessIdentityConfig:
         Comment: !Sub ${AWS::StackName} OAI

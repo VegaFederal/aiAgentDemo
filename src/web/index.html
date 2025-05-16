@@ -107,8 +107,8 @@
             
             // API endpoint - using the actual API Gateway URL from CloudFormation output
             const API_ENDPOINT = window.location.hostname === 'localhost' 
-                ? 'http://localhost:3000/query'  // For local testing
-                : '/query';  // Use relative path for deployed version
+                ? 'http://localhost:3000/api'  // For local testing
+                : '/api';  // Use relative path for deployed version
             
             // Toggle question options visibility
             toggleOptions.addEventListener('click', function() {

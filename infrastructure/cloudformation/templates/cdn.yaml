@@ -42,7 +42,7 @@ Resources:
             Effect: Allow
             Resource: !Sub arn:aws:s3:::${WebsiteBucketName}/*
             Principal:
-              CanonicalUser: !GetAtt CloudFrontOriginAccessIdentity.S3CanonicalUserId
+              CanonicalUser: !GetAtt CloudFrontOAI.S3CanonicalUserId
 
   # CloudFront Distribution
   CloudFrontDistribution:

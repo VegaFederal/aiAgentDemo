@@ -137,7 +137,7 @@
                 
                 // Get selected question type
                 const questionType = document.querySelector('input[name="questionType"]:checked').value;
-                const typeParam = questionType === 'regular' ? null : questionType;
+                const typeParam = questionType === 'regular' ? "text" : questionType;
                 
                 // Show loading indicator
                 const loadingId = addMessage('Thinking...', 'ai');

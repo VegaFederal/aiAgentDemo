@@ -31,12 +31,13 @@ Resources:
       
   # S3 Bucket Notification Configuration
   BucketNotificationConfiguration:
-    Type: AWS::S3::BucketNotification
+    Type: AWS::S3::BucketNotificationConfiguration
     Properties:
       Bucket: !Ref DocumentsBucketName
-      LambdaConfigurations:
-        - Event: s3:ObjectCreated:*
-          Function: !Ref DocumentProcessorFunctionArn
+      NotificationConfiguration:
+        LambdaFunctionConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !Ref DocumentProcessorFunctionArn
 
 Outputs:
   BucketNotificationConfigured:

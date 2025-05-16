@@ -21,7 +21,7 @@ Parameters:
   
   ApiEndpoint:
     Type: String
-    Description: API Gateway endpoint URL (format: https://api-id.execute-api.region.amazonaws.com/stage/resource)
+    Description: API Gateway endpoint URL (format https://api-id.execute-api.region.amazonaws.com/stage/resource)
 
 Resources:
   CloudFrontOAI:

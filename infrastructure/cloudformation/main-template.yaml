@@ -79,6 +79,9 @@ Resources:
         Environment: !Ref Environment
         DocumentsBucketName: !Sub aiad-docs
         LambdaCodeBucket: !Ref LambdaCodeBucket
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
         
   # API Gateway Stack
   ApiGatewayStack:
@@ -89,6 +92,20 @@ Resources:
       Parameters:
         Environment: !Ref Environment
         LlmAgentFunctionArn: !GetAtt BedrockLambdaStack.Outputs.LlmAgentFunctionArn
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+          
+  # Bucket Notifications Stack
+  BucketNotificationsStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: [BedrockLambdaStack]
+    Properties:
+      TemplateURL: ./templates/bucket-notifications.yaml
+      Parameters:
+        Environment: !Ref Environment
+        DocumentsBucketName: !GetAtt BedrockLambdaStack.Outputs.DocumentsBucketName
+        DocumentProcessorFunctionArn: !GetAtt BedrockLambdaStack.Outputs.DocumentProcessorFunctionName
       Tags:
         - Key: Environment
           Value: !Ref Environment

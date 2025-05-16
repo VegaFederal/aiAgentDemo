@@ -121,14 +121,14 @@ Resources:
   # Lambda Permission for S3
   DocumentProcessorPermission:
     Type: AWS::Lambda::Permission
-    DependsOn: [DocumentProcessorFunction, DocumentsBucket]
+    DependsOn: DocumentProcessorFunction
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !Ref DocumentProcessorFunction
       Principal: s3.amazonaws.com
       SourceArn: !Sub arn:aws:s3:::${DocumentsBucketName}-${Environment}
 
-  # S3 Bucket for Document Storage with notifications
+  # S3 Bucket for Document Storage (without notifications initially)
   DocumentsBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -139,10 +139,6 @@ Resources:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: AES256
-      NotificationConfiguration:
-        LambdaConfigurations:
-          - Event: s3:ObjectCreated:*
-            Function: !GetAtt DocumentProcessorFunction.Arn
       Tags:
         - Key: Environment
           Value: !Ref Environment

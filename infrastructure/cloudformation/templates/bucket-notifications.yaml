@@ -1,0 +1,44 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: S3 bucket notifications for document processing
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - prod
+    Description: The deployment environment
+    
+  DocumentsBucketName:
+    Type: String
+    Description: Name of the S3 bucket that stores documents
+    
+  DocumentProcessorFunctionArn:
+    Type: String
+    Description: ARN of the document processor Lambda function
+
+Resources:
+  # Lambda Permission for S3
+  DocumentProcessorPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref DocumentProcessorFunctionArn
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub arn:aws:s3:::${DocumentsBucketName}
+      
+  # S3 Bucket Notification Configuration
+  BucketNotificationConfiguration:
+    Type: AWS::S3::BucketNotification
+    Properties:
+      Bucket: !Ref DocumentsBucketName
+      LambdaConfigurations:
+        - Event: s3:ObjectCreated:*
+          Function: !Ref DocumentProcessorFunctionArn
+
+Outputs:
+  BucketNotificationConfigured:
+    Description: "Confirmation that bucket notifications were configured"
+    Value: "true"

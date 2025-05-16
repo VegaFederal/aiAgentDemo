@@ -1,7 +1,6 @@
 import json
 import os
 import boto3
-import numpy as np
 
 # Initialize AWS clients
 bedrock = boto3.client('bedrock-runtime')
@@ -9,8 +8,8 @@ dynamodb = boto3.resource('dynamodb')
 
 # Get environment variables
 EMBEDDINGS_TABLE = os.environ.get('EMBEDDINGS_TABLE')
-EMBEDDING_MODEL_ID = os.environ.get('EMBEDDING_MODEL_ID', 'amazon.titan-embed-text-v1')
-LLM_MODEL_ID = os.environ.get('LLM_MODEL_ID', 'anthropic.claude-3-5-sonnet-20240620-v1:0')
+EMBEDDING_MODEL_ID = os.environ.get('EMBEDDING_MODEL_ID')
+LLM_MODEL_ID = os.environ.get('LLM_MODEL_ID')
 SIMILARITY_THRESHOLD = float(os.environ.get('SIMILARITY_THRESHOLD', '0.7'))
 MAX_CONTEXT_DOCS = int(os.environ.get('MAX_CONTEXT_DOCS', '5'))
 
@@ -120,7 +119,10 @@ def lambda_handler(event, context):
         
         return {
             'statusCode': 200,
-            'headers': {'Content-Type': 'application/json'},
+            'headers': {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            },
             'body': json.dumps({
                 'response': response,
                 'context_used': len(context_docs)
@@ -131,6 +133,9 @@ def lambda_handler(event, context):
         print(f"Error processing request: {str(e)}")
         return {
             'statusCode': 500,
-            'headers': {'Content-Type': 'application/json'},
+            'headers': {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            },
             'body': json.dumps({'error': str(e)})
         }

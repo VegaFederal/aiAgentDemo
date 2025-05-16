@@ -73,13 +73,32 @@ jobs:
           aws s3 sync infrastructure/cloudformation/templates/ s3://$TEMPLATE_BUCKET/templates/
           # Update template URLs in main-template.yaml to use S3 paths
           sed -i "s|TemplateURL: ./templates/|TemplateURL: https://s3.amazonaws.com/$TEMPLATE_BUCKET/templates/|g" infrastructure/cloudformation/main-template.yaml
-      - name: Create Lambda deployment package
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          
+      - name: Create Lambda deployment packages
         run: |
-          cd src/lambda
-          zip -r lambda.zip *
+          # Create Lambda code bucket
           PROJECT_NAME_LOWER=$(echo "$PROJECT_NAME" | tr '[:upper:]' '[:lower:]')
-          aws s3 mb s3://${PROJECT_NAME_LOWER}-dev-deployment || true
-          aws s3 cp lambda.zip s3://${PROJECT_NAME_LOWER}-dev-deployment/
+          LAMBDA_CODE_BUCKET="${PROJECT_NAME_LOWER}-lambda-code"
+          echo "LAMBDA_CODE_BUCKET=$LAMBDA_CODE_BUCKET" >> $GITHUB_ENV
+          aws s3api head-bucket --bucket $LAMBDA_CODE_BUCKET 2>/dev/null || aws s3 mb s3://$LAMBDA_CODE_BUCKET
+          
+          # Package document processor Lambda
+          cd src/document-processor
+          pip install -r requirements.txt -t .
+          zip -r document-processor.zip .
+          aws s3 cp document-processor.zip s3://$LAMBDA_CODE_BUCKET/lambda/document-processor.zip
+          cd ../..
+          
+          # Package LLM agent Lambda
+          cd src/llm-agent
+          pip install -r requirements.txt -t .
+          zip -r llm-agent.zip .
+          aws s3 cp llm-agent.zip s3://$LAMBDA_CODE_BUCKET/lambda/llm-agent.zip
+          cd ../..
 
       - name: Deploy CloudFormation stack
         uses: aws-actions/aws-cloudformation-github-deploy@v1
@@ -90,7 +109,8 @@ jobs:
             Environment=dev,
             VpcId=${{ env.VPC_ID }},
             SubnetIds=${{ env.SUBNET_IDS }},
-            DocumentsBucketName=${{ env.DOCUMENTS_BUCKET_NAME }}
+            DocumentsBucketName=${{ env.DOCUMENTS_BUCKET_NAME }},
+            LambdaCodeBucket=${{ env.LAMBDA_CODE_BUCKET }}
           no-fail-on-empty-changeset: "1"
           capabilities: "CAPABILITY_NAMED_IAM"
 

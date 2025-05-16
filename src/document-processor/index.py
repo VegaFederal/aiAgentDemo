@@ -11,7 +11,7 @@ dynamodb = boto3.resource('dynamodb')
 
 # Environment variables
 EMBEDDINGS_TABLE = os.environ.get('EMBEDDINGS_TABLE')
-EMBEDDING_MODEL_ID = os.environ.get('EMBEDDING_MODEL_ID', 'amazon.titan-embed-text-v1')
+EMBEDDING_MODEL_ID = os.environ.get('EMBEDDING_MODEL_ID')
 CHUNK_SIZE = int(os.environ.get('CHUNK_SIZE', '1000'))
 CHUNK_OVERLAP = int(os.environ.get('CHUNK_OVERLAP', '200'))
 
@@ -39,7 +39,8 @@ def extract_text(bucket, key):
         return text
     
     else:
-        raise ValueError(f"Unsupported file type: {file_extension}")
+        print(f"Skipping unsupported file type: {file_extension}")
+        return ""  # Return empty string for unsupported files
 
 def chunk_text(text, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP):
     """Split text into overlapping chunks of specified size"""
@@ -91,8 +92,9 @@ def lambda_handler(event, context):
     """Process documents from S3 and generate embeddings"""
     try:
         # Get S3 bucket and key from event
-        bucket = event['Records'][0]['s3']['bucket']['name']
-        key = event['Records'][0]['s3']['object']['key']
+        record = event['Records'][0]
+        bucket = record['s3']['bucket']['name']
+        key = record['s3']['object']['key']
         
         # Extract metadata if provided
         metadata = {}

@@ -25,6 +25,10 @@ Parameters:
     Type: String
     Default: aiad-docs
     Description: Base name for the S3 bucket that will store documents
+    
+  LambdaCodeBucket:
+    Type: String
+    Description: S3 bucket containing Lambda function code packages
 
 Resources:
   # Security Groups Stack
@@ -74,6 +78,7 @@ Resources:
       Parameters:
         Environment: !Ref Environment
         DocumentsBucketName: !Sub aiad-docs
+        LambdaCodeBucket: !Ref LambdaCodeBucket
         
   # API Gateway Stack
   ApiGatewayStack:

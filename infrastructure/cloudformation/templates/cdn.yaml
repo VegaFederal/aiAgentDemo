@@ -76,7 +76,7 @@ Resources:
               Forward: none
           ViewerProtocolPolicy: redirect-to-https
         CacheBehaviors:
-          - PathPattern: /api/*
+          - PathPattern: /api
             AllowedMethods:
               - DELETE
               - GET

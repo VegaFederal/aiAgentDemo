@@ -25,41 +25,9 @@ Resources:
       EndpointConfiguration:
         Types:
           - REGIONAL
-      # Enable CORS
-      Body:
-        swagger: "2.0"
-        info:
-          version: "1.0"
-          title: "LLM Agent API"
-        paths:
-          /query:
-            options:
-              consumes:
-                - "application/json"
-              produces:
-                - "application/json"
-              responses:
-                "200":
-                  description: "200 response"
-                  headers:
-                    Access-Control-Allow-Origin:
-                      type: "string"
-                    Access-Control-Allow-Methods:
-                      type: "string"
-                    Access-Control-Allow-Headers:
-                      type: "string"
-              x-amazon-apigateway-integration:
-                responses:
-                  default:
-                    statusCode: "200"
-                    responseParameters:
-                      method.response.header.Access-Control-Allow-Methods: "'GET,POST,OPTIONS'"
-                      method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
-                      method.response.header.Access-Control-Allow-Origin: "'*'"
-                requestTemplates:
-                  application/json: '{"statusCode": 200}'
-                passthroughBehavior: "when_no_match"
-                type: "mock"
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
 
   # API Gateway Resource
   LlmAgentResource:
@@ -67,7 +35,7 @@ Resources:
     Properties:
       RestApiId: !Ref LlmAgentApi
       ParentId: !GetAtt LlmAgentApi.RootResourceId
-      PathPart: 'query'
+      PathPart: 'api'
 
   # Lambda Permission for API Gateway
   LlmAgentPermission:
@@ -76,7 +44,7 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref LlmAgentFunctionArn
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${LlmAgentApi}/${Environment}/POST/query
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${LlmAgentApi}/${Environment}/POST/api
 
   # API Gateway Method
   LlmAgentMethod:
@@ -108,7 +76,7 @@ Resources:
 Outputs:
   LlmAgentApiEndpoint:
     Description: API Gateway endpoint URL for LLM Agent
-    Value: !Sub https://${LlmAgentApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/query
+    Value: !Sub https://${LlmAgentApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/api
   
   LlmAgentApiId:
     Description: API Gateway ID

@@ -91,7 +91,7 @@ def call_claude(query, context_docs, question_type=None):
     
     # Create the message for Claude
     messages = [
-        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": system_prompt},
         {"role": "user", "content": f"Context:\n{context_text}\n\nQuestion: {query}"}
     ]
     
@@ -99,7 +99,7 @@ def call_claude(query, context_docs, question_type=None):
     try:
         logger.info(f"Invoking Bedrock model: {LLM_MODEL_ID}")
         logger.info(f"Sending {len(messages)} messages to Claude")
-        logger.info(f"Sending {{messages}} to Claude")
+        logger.info(f"Sending {messages} to Claude")
         response = bedrock.invoke_model(
             modelId=LLM_MODEL_ID,
             contentType="application/json",

@@ -119,6 +119,23 @@ jobs:
           BUCKET_NAME=$(aws cloudformation describe-stacks --stack-name ${{ env.PROJECT_NAME }} --query "Stacks[0].Outputs[?OutputKey=='WebsiteBucketName'].OutputValue" --output text)
           aws s3 sync src/web/ s3://$BUCKET_NAME/
 
+      - name: Update Lambda functions
+        run: |
+          # Get function names from CloudFormation outputs
+          DOC_PROCESSOR_FUNCTION=$(aws cloudformation describe-stacks --stack-name ${{ env.PROJECT_NAME }}-BedrockLambdaStack --query "Stacks[0].Outputs[?OutputKey=='DocumentProcessorFunctionName'].OutputValue" --output text)
+          LLM_AGENT_FUNCTION=$(aws cloudformation describe-stacks --stack-name ${{ env.PROJECT_NAME }}-BedrockLambdaStack --query "Stacks[0].Outputs[?OutputKey=='LlmAgentFunctionName'].OutputValue" --output text)
+          
+          # Update Lambda functions with latest code
+          aws lambda update-function-code \
+            --function-name $DOC_PROCESSOR_FUNCTION \
+            --s3-bucket $LAMBDA_CODE_BUCKET \
+            --s3-key lambda/document-processor.zip
+            
+          aws lambda update-function-code \
+            --function-name $LLM_AGENT_FUNCTION \
+            --s3-bucket $LAMBDA_CODE_BUCKET \
+            --s3-key lambda/llm-agent.zip
+
       - name: Get CloudFront URL
         run: |
           CF_URL=$(aws cloudformation describe-stacks --stack-name ${{ env.PROJECT_NAME }} --query "Stacks[0].Outputs[?OutputKey=='WebsiteUrl'].OutputValue" --output text)

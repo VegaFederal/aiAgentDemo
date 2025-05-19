@@ -47,30 +47,59 @@ def cosine_similarity(vec_a, vec_b):
 def retrieve_relevant_context(query_embedding):
     """Retrieve relevant documents based on embedding similarity"""
     logger.info("Retrieving relevant context from DynamoDB")
-    # In a real implementation, you would use a vector database
-    # This is a simplified version that scans the DynamoDB table
-    response = embeddings_table.scan()
-    items = response.get('Items', [])
+    
+    # Initialize variables for pagination
+    items = []
+    last_evaluated_key = None
+    
+    # Scan the table with pagination
+    while True:
+        # Prepare scan parameters
+        scan_params = {
+            'TableName': EMBEDDINGS_TABLE
+        }
+        
+        # Add ExclusiveStartKey for pagination if we have a last_evaluated_key
+        if last_evaluated_key:
+            scan_params['ExclusiveStartKey'] = last_evaluated_key
+        
+        # Execute the scan
+        response = dynamodb.meta.client.scan(**scan_params)
+        
+        # Add items from this page
+        items.extend(response.get('Items', []))
+        
+        # Update pagination key
+        last_evaluated_key = response.get('LastEvaluatedKey')
+        
+        # Break if no more pages
+        if not last_evaluated_key:
+            break
+    
     logger.info(f"Found {len(items)} items in DynamoDB")
     
     # Calculate similarity for each document
     similarities = []
     for item in items:
-        # In the llm-agent code where you retrieve embeddings
-        doc_embedding = json.loads(item['embedding_json'])
-        similarity = cosine_similarity(query_embedding, doc_embedding)
-        if similarity >= SIMILARITY_THRESHOLD:
-            similarities.append({
-                'document_id': item['document_id'],
-                'content': item['content'],
-                'similarity': similarity
-            })
+        try:
+            # In the llm-agent code where you retrieve embeddings
+            doc_embedding = json.loads(item['embedding_json'])
+            similarity = cosine_similarity(query_embedding, doc_embedding)
+            if similarity >= SIMILARITY_THRESHOLD:
+                similarities.append({
+                    'document_id': item['document_id'],
+                    'content': item['content'],
+                    'similarity': similarity
+                })
+        except Exception as e:
+            logger.error(f"Error processing item: {str(e)}")
     
     # Sort by similarity (highest first) and take top N
     similarities.sort(key=lambda x: x['similarity'], reverse=True)
     selected_docs = similarities[:MAX_CONTEXT_DOCS]
     logger.info(f"Selected {len(selected_docs)} relevant documents with similarities: {[round(doc['similarity'], 3) for doc in selected_docs]}")
     return selected_docs
+
 
 def call_claude(query, context_docs, question_type=None):
     """Call Claude 3.5 Sonnet with the query and context"""

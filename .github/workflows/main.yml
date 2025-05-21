@@ -122,8 +122,9 @@ jobs:
       - name: Update Lambda functions
         run: |
           # Get function names from CloudFormation outputs
-          DOC_PROCESSOR_FUNCTION=$(aws cloudformation describe-stacks --stack-name ${{ env.PROJECT_NAME }}-BedrockLambdaStack --query "Stacks[0].Outputs[?OutputKey=='DocumentProcessorFunctionName'].OutputValue" --output text)
-          LLM_AGENT_FUNCTION=$(aws cloudformation describe-stacks --stack-name ${{ env.PROJECT_NAME }}-BedrockLambdaStack --query "Stacks[0].Outputs[?OutputKey=='LlmAgentFunctionName'].OutputValue" --output text)
+          BEDROCK_STACK_ID=$(aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE --query "StackSummaries[?contains(StackName, '${{ env.PROJECT_NAME }}-BedrockLambdaStack')].StackName" --output text)
+          DOC_PROCESSOR_FUNCTION=$(aws cloudformation describe-stacks --stack-name $BEDROCK_STACK_ID --query "Stacks[0].Outputs[?OutputKey=='DocumentProcessorFunctionName'].OutputValue" --output text)
+          LLM_AGENT_FUNCTION=$(aws cloudformation describe-stacks --stack-name $BEDROCK_STACK_ID --query "Stacks[0].Outputs[?OutputKey=='LlmAgentFunctionName'].OutputValue" --output text)
           
           # Update Lambda functions with latest code
           aws lambda update-function-code \

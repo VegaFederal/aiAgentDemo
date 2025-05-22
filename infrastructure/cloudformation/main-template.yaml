@@ -89,12 +89,12 @@ Resources:
       TemplateURL: ./templates/api-template.yaml
       Parameters:
         Environment: !Ref Environment
-        DocumentProcessorFunctionName: !GetAtt BedrockLambdaStack.Outputs.DocumentProcessorFunctionName
+        DocumentProcessorFunctionName: !Sub "${AWS::StackName}-document-processor"
         ProcessAllDocumentsFunctionName: !Sub "${AWS::StackName}-process-all-documents"
-        DocumentsBucketName: !GetAtt BedrockLambdaStack.Outputs.DocumentsBucketName
+        DocumentsBucketName: !Sub "${DocumentsBucketName}-${Environment}"
         LambdaCodeBucket: !Ref LambdaCodeBucket
-        AIModel: !GetAtt BedrockLambdaStack.Outputs.EmbeddingModelId
-        EmbeddingsTable: !GetAtt BedrockLambdaStack.Outputs.EmbeddingsTableName
+        AIModel: "amazon.titan-embed-text-v1"
+        EmbeddingsTable: !Sub "${AWS::StackName}-embeddings-${Environment}"
       Tags:
         - Key: Environment
           Value: !Ref Environment

@@ -34,12 +34,12 @@ Resources:
           AttributeType: S
         - AttributeName: document_id
           AttributeType: S
-        - AttributeName: doc_id
-          AttributeType: S
-        - AttributeName: parent_id
-          AttributeType: S
-        - AttributeName: path
-          AttributeType: S
+        #- AttributeName: doc_id
+          #AttributeType: S
+        #- AttributeName: parent_id
+          #AttributeType: S
+        #- AttributeName: path
+          #AttributeType: S
       KeySchema:
         - AttributeName: id
           KeyType: HASH

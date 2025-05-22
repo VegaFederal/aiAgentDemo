@@ -34,12 +34,12 @@ Resources:
           AttributeType: S
         - AttributeName: document_id
           AttributeType: S
-        #- AttributeName: doc_id
-          #AttributeType: S
-        #- AttributeName: parent_id
-          #AttributeType: S
-        #- AttributeName: path
-          #AttributeType: S
+        - AttributeName: doc_id
+          AttributeType: S
+        - AttributeName: parent_id
+          AttributeType: S
+        - AttributeName: path
+          AttributeType: S
       KeySchema:
         - AttributeName: id
           KeyType: HASH
@@ -50,24 +50,24 @@ Resources:
               KeyType: HASH
           Projection:
             ProjectionType: ALL
-        #- IndexName: DocIdIndex
-          #KeySchema:
-            #- AttributeName: doc_id
-              #KeyType: HASH
-          #Projection:
-            #ProjectionType: ALL
-        #- IndexName: ParentIdIndex
-          #KeySchema:
-            #- AttributeName: parent_id
-              #KeyType: HASH
-          #Projection:
-            #ProjectionType: ALL
-        #- IndexName: PathIndex
-          #KeySchema:
-            #- AttributeName: path
-              #KeyType: HASH
-          #Projection:
-            #ProjectionType: ALL
+        - IndexName: DocIdIndex
+          KeySchema:
+            - AttributeName: doc_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: ParentIdIndex
+          KeySchema:
+            - AttributeName: parent_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: PathIndex
+          KeySchema:
+            - AttributeName: path
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
       Tags:
         - Key: Environment
           Value: !Ref Environment

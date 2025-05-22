@@ -110,6 +110,7 @@ Resources:
         Environment: !Ref Environment
         WebsiteBucketName: !GetAtt StaticWebsiteStack.Outputs.WebsiteBucketName
         ApiEndpoint: !GetAtt ApiGatewayStack.Outputs.LlmAgentApiEndpoint
+        DocProcessingApiEndpoint: !GetAtt DocProcApiGatewayStack.Outputs.ApiEndpoint
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -142,6 +143,10 @@ Outputs:
   DocumentProcessingApiEndpoint:
     Description: API Gateway endpoint URL for Document Processing
     Value: !GetAtt DocProcApiGatewayStack.Outputs.ApiEndpoint
+    
+  DocumentProcessingCloudFrontUrl:
+    Description: CloudFront URL for Document Processing API
+    Value: !GetAtt CdnStack.Outputs.DocProcessingApiUrl
     
   ProcessAllDocumentsFunctionArn:
     Description: ARN of the process all documents Lambda function

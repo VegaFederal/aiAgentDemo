@@ -22,6 +22,10 @@ Parameters:
   ApiEndpoint:
     Type: String
     Description: API Gateway endpoint URL (format https://api-id.execute-api.region.amazonaws.com/stage/resource)
+    
+  DocProcessingApiEndpoint:
+    Type: String
+    Description: Document Processing API Gateway endpoint URL
 
 Resources:
   CloudFrontOAI:
@@ -63,6 +67,15 @@ Resources:
               OriginProtocolPolicy: https-only
               OriginSSLProtocols:
                 - TLSv1.2
+          - DomainName: !Select [2, !Split ["/", !Ref DocProcessingApiEndpoint]]
+            Id: DocApiOrigin
+            OriginPath: /dev
+            CustomOriginConfig:
+              HTTPPort: 80
+              HTTPSPort: 443
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols:
+                - TLSv1.2
         Enabled: true
         DefaultRootObject: index.html
         DefaultCacheBehavior:
@@ -87,6 +100,27 @@ Resources:
               - POST
               - PUT
             TargetOriginId: ApiOrigin
+            ForwardedValues:
+              QueryString: true
+              Headers:
+                - Authorization
+                - Content-Type
+              Cookies:
+                Forward: all
+            ViewerProtocolPolicy: https-only
+            MinTTL: 0
+            DefaultTTL: 0
+            MaxTTL: 0
+          - PathPattern: /process-documents
+            AllowedMethods:
+              - DELETE
+              - GET
+              - HEAD
+              - OPTIONS
+              - PATCH
+              - POST
+              - PUT
+            TargetOriginId: DocApiOrigin
             ForwardedValues:
               QueryString: true
               Headers:
@@ -130,3 +164,9 @@ Outputs:
     Value: !Sub "https://${CloudFrontDistribution.DomainName}/api"
     Export:
       Name: !Sub "${ProjectName}-${Environment}-ApiUrl"
+      
+  DocProcessingApiUrl:
+    Description: "CloudFront URL for Document Processing API access"
+    Value: !Sub "https://${CloudFrontDistribution.DomainName}/process-documents"
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-DocProcessingApiUrl"

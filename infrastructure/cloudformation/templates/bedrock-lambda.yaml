@@ -24,10 +24,9 @@ Resources:
   # DynamoDB Table for Document Embeddings
   DocumentEmbeddingsTable:
     Type: AWS::DynamoDB::Table
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    # Removed DeletionPolicy and UpdateReplacePolicy to allow proper cleanup
     Properties:
-      TableName: !Sub aiad-embeddings-${Environment}
+      # Removed TableName to let CloudFormation generate a unique name
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - AttributeName: id
@@ -143,7 +142,7 @@ Resources:
       MemorySize: 512
       Environment:
         Variables:
-          EMBEDDINGS_TABLE: !Ref DocumentEmbeddingsTable
+          EMBEDDINGS_TABLE: !Ref DocumentEmbeddingsTable  # This now references the physical ID
           EMBEDDING_MODEL_ID: amazon.titan-embed-text-v2:0
           CHUNK_SIZE: 1000
           CHUNK_OVERLAP: 200

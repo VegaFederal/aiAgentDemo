@@ -86,7 +86,7 @@ Resources:
     Type: AWS::CloudFormation::Stack
     DependsOn: BedrockLambdaStack
     Properties:
-      TemplateURL: ./templates/api-template.yaml
+      TemplateURL: ./templates/document-processing-api.yaml
       Parameters:
         Environment: !Ref Environment
         DocumentProcessorFunctionName: !Sub "${AWS::StackName}-document-processor"

@@ -14,6 +14,22 @@ Parameters:
   ProcessAllDocumentsFunctionName:
     Type: String
     Description: Name of the Lambda function to process all documents
+    
+  DocumentsBucketName:
+    Type: String
+    Description: Name of the S3 bucket that stores documents
+    
+  LambdaCodeBucket:
+    Type: String
+    Description: S3 bucket containing Lambda function code packages
+    
+  AIModel:
+    Type: String
+    Description: Bedrock AI model ID for embeddings
+    
+  EmbeddingsTable:
+    Type: String
+    Description: DynamoDB table name for embeddings
 
 Resources:
   # API Gateway
@@ -125,7 +141,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - dynamodb:PutItem
-                Resource: !GetAtt EmbeddingsTable.Arn
+                Resource: !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmbeddingsTable}
         - PolicyName: BedrockAccess
           PolicyDocument:
             Version: '2012-10-17'

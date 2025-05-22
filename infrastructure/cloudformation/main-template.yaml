@@ -68,7 +68,7 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
         
-  # API Gateway Stack
+  # API Gateway Stack for LLM Agent
   ApiGatewayStack:
     Type: AWS::CloudFormation::Stack
     DependsOn: BedrockLambdaStack
@@ -81,10 +81,28 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
           
+  # API Gateway Stack for Document Processing
+  DocProcApiGatewayStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: BedrockLambdaStack
+    Properties:
+      TemplateURL: ./templates/api-template.yaml
+      Parameters:
+        Environment: !Ref Environment
+        DocumentProcessorFunctionName: !GetAtt BedrockLambdaStack.Outputs.DocumentProcessorFunctionName
+        ProcessAllDocumentsFunctionName: !Sub "${AWS::StackName}-process-all-documents"
+        DocumentsBucketName: !GetAtt BedrockLambdaStack.Outputs.DocumentsBucketName
+        LambdaCodeBucket: !Ref LambdaCodeBucket
+        AIModel: !GetAtt BedrockLambdaStack.Outputs.EmbeddingModelId
+        EmbeddingsTable: !GetAtt BedrockLambdaStack.Outputs.EmbeddingsTableName
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+          
   # CDN Stack
   CdnStack:
     Type: AWS::CloudFormation::Stack
-    DependsOn: [StaticWebsiteStack, ApiGatewayStack]
+    DependsOn: [StaticWebsiteStack, ApiGatewayStack, DocProcApiGatewayStack]
     Properties:
       TemplateURL: ./templates/cdn.yaml
       Parameters:
@@ -120,3 +138,11 @@ Outputs:
   LlmAgentApiEndpoint:
     Description: API Gateway endpoint URL for LLM Agent
     Value: !GetAtt ApiGatewayStack.Outputs.LlmAgentApiEndpoint
+    
+  DocumentProcessingApiEndpoint:
+    Description: API Gateway endpoint URL for Document Processing
+    Value: !GetAtt DocProcApiGatewayStack.Outputs.ApiEndpoint
+    
+  ProcessAllDocumentsFunctionArn:
+    Description: ARN of the process all documents Lambda function
+    Value: !GetAtt DocProcApiGatewayStack.Outputs.ProcessAllDocumentsFunctionArn

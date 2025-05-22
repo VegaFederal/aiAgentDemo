@@ -73,7 +73,7 @@ Resources:
     Type: AWS::CloudFormation::Stack
     DependsOn: BedrockLambdaStack
     Properties:
-      TemplateURL: ./templates/api-gateway.yaml
+      TemplateURL: ./templates/llm-api.yaml
       Parameters:
         Environment: !Ref Environment
         LlmAgentFunctionArn: !GetAtt BedrockLambdaStack.Outputs.LlmAgentFunctionArn

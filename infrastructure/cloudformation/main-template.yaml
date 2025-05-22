@@ -35,7 +35,7 @@ Resources:
   SecurityGroupsStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: https://s3.amazonaws.com/TEMPLATE_BUCKET/templates/security-groups.yaml
+      TemplateURL: ./templates/security-groups.yaml
       Parameters:
         Environment: !Ref Environment
         VpcId: !Ref VpcId
@@ -47,7 +47,7 @@ Resources:
   StaticWebsiteStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: https://s3.amazonaws.com/TEMPLATE_BUCKET/templates/static-website.yaml
+      TemplateURL: ./templates/static-website.yaml
       Parameters:
         ProjectName: !Ref AWS::StackName
         Environment: !Ref Environment
@@ -59,7 +59,7 @@ Resources:
   BedrockLambdaStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: https://s3.amazonaws.com/TEMPLATE_BUCKET/templates/bedrock-lambda.yaml
+      TemplateURL: ./templates/bedrock-lambda.yaml
       Parameters:
         Environment: !Ref Environment
         DocumentsBucketName: !Sub aiad-docs
@@ -73,7 +73,7 @@ Resources:
     Type: AWS::CloudFormation::Stack
     DependsOn: BedrockLambdaStack
     Properties:
-      TemplateURL: https://s3.amazonaws.com/TEMPLATE_BUCKET/templates/api-gateway.yaml
+      TemplateURL: ./templates/api-gateway.yaml
       Parameters:
         Environment: !Ref Environment
         LlmAgentFunctionArn: !GetAtt BedrockLambdaStack.Outputs.LlmAgentFunctionArn
@@ -86,7 +86,7 @@ Resources:
     Type: AWS::CloudFormation::Stack
     DependsOn: BedrockLambdaStack
     Properties:
-      TemplateURL: https://s3.amazonaws.com/TEMPLATE_BUCKET/templates/api-template.yaml
+      TemplateURL: ./templates/api-template.yaml
       Parameters:
         Environment: !Ref Environment
         DocumentProcessorFunctionName: !Sub "${AWS::StackName}-document-processor"

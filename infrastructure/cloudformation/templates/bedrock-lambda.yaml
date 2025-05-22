@@ -24,6 +24,8 @@ Resources:
   # DynamoDB Table for Document Embeddings
   DocumentEmbeddingsTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       TableName: !Sub aiad-embeddings-${Environment}
       BillingMode: PAY_PER_REQUEST
@@ -32,6 +34,12 @@ Resources:
           AttributeType: S
         - AttributeName: document_id
           AttributeType: S
+        - AttributeName: doc_id
+          AttributeType: S
+        - AttributeName: parent_id
+          AttributeType: S
+        - AttributeName: path
+          AttributeType: S
       KeySchema:
         - AttributeName: id
           KeyType: HASH
@@ -39,6 +47,24 @@ Resources:
         - IndexName: DocumentIdIndex
           KeySchema:
             - AttributeName: document_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: DocIdIndex
+          KeySchema:
+            - AttributeName: doc_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: ParentIdIndex
+          KeySchema:
+            - AttributeName: parent_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: PathIndex
+          KeySchema:
+            - AttributeName: path
               KeyType: HASH
           Projection:
             ProjectionType: ALL

@@ -82,7 +82,7 @@ Resources:
   BedrockLambdaStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/templates/bedrock-lambda.yaml?v=${TemplateVersion}
+      TemplateURL: !Sub https://s3.${AWS::Region}.amazonaws.com/${TemplateBucket}/templates/bedrock-lambda.yaml
       Parameters:
         Environment: !Ref Environment
         DocumentsBucketName: !Sub aiad-docs

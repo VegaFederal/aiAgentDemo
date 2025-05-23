@@ -27,6 +27,7 @@ embeddings_table = dynamodb.Table(EMBEDDINGS_TABLE)
 
 def extract_links_from_html(html_content):
     """Extract all links from HTML content"""
+    logging.info("Extracting links from HTML content")
     links = []
     # Find all href attributes in anchor tags
     href_pattern = re.compile(r'<a\s+[^>]*href=[\'"]([^\'"]+)[\'"][^>]*>(.*?)</a>', re.IGNORECASE | re.DOTALL)

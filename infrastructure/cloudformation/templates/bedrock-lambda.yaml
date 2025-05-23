@@ -161,12 +161,12 @@ Resources:
   # Lambda Permission for S3
   DocumentProcessorPermission:
     Type: AWS::Lambda::Permission
-    DependsOn: DocumentProcessorFunction
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref DocumentProcessorFunction
+      FunctionName: !Ref ProcessAllDocumentsFunctionArn  
       Principal: s3.amazonaws.com
       SourceArn: !Sub arn:aws:s3:::${DocumentsBucketName}-${Environment}
+
 
   # Custom Resource Lambda Function for S3 Bucket Notifications
   NotificationConfigFunction:
@@ -305,10 +305,6 @@ Outputs:
   DocumentEmbeddingsTableName:
     Description: DynamoDB Table for document embeddings
     Value: !Ref DocumentEmbeddingsTable
-
-  DocumentProcessorFunctionName:
-    Description: Lambda function for document processing
-    Value: !Ref DocumentProcessorFunction
 
   LlmAgentFunctionName:
     Description: Lambda function for LLM Agent

@@ -83,7 +83,7 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Ref ProcessAllDocumentsFunctionName
-      Handler: process_all_documents.lambda_handler
+      Handler: index.lambda_handler
       Role: !GetAtt ProcessAllDocumentsRole.Arn
       Code:
         S3Bucket: !Ref LambdaCodeBucket

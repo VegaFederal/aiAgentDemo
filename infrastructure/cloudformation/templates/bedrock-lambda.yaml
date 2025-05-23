@@ -331,4 +331,5 @@ Outputs:
     Value: !GetAtt LlmAgentFunction.Arn
 
   LambdaExecutionRoleArn:
-    Value: !GetAtt LambdaExecutionRole
+    Description: Lambda Execution Role ARN
+    Value: !GetAtt LambdaExecutionRole.Arn

@@ -139,27 +139,6 @@ Resources:
                   - !Sub arn:aws:s3:::${DocumentsBucketName}-${Environment}
                   - !Sub arn:aws:s3:::${DocumentsBucketName}-${Environment}/*
 
-  # Document Processor for Lambda Function
-  DocumentProcessorFunction:
-    Type: AWS::Lambda::Function
-    DependsOn: LambdaExecutionRole
-    Properties:
-      FunctionName: !Sub ${ParentStackName}-process-all-documents
-      Handler: index.lambda_handler
-      Role: !GetAtt LambdaExecutionRole.Arn
-      Runtime: python3.11
-      Timeout: 300
-      MemorySize: 512
-      Environment:
-        Variables:
-          EMBEDDINGS_TABLE: !Ref DocumentEmbeddingsTable  # This now references the physical ID
-          EMBEDDING_MODEL_ID: amazon.titan-embed-text-v2:0
-          CHUNK_SIZE: 1000
-          CHUNK_OVERLAP: 200
-      Code:
-        S3Bucket: !Ref LambdaCodeBucket
-        S3Key: lambda/document-processor.zip
-
   # S3 Bucket for Document Storage
   DocumentsBucket:
     Type: AWS::S3::Bucket

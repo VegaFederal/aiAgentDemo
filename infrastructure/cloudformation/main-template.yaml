@@ -10,7 +10,14 @@ Parameters:
       - test
       - prod
     Description: The deployment environment
-  
+  TemplateBucket:
+    Type: String
+    Description: S3 bucket containing CloudFormation templates
+    
+  TemplateVersion:
+    Type: String
+    Description: Version timestamp for template URLs
+
   VpcId:
     Type: AWS::EC2::VPC::Id
     Default: vpc-03de7ad5a4c7c1822
@@ -75,7 +82,7 @@ Resources:
   BedrockLambdaStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: ./templates/bedrock-lambda.yaml
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/templates/bedrock-lambda.yaml?v=${TemplateVersion}
       Parameters:
         Environment: !Ref Environment
         DocumentsBucketName: !Sub aiad-docs
@@ -85,6 +92,7 @@ Resources:
       Tags:
         - Key: Environment
           Value: !Ref Environment
+
         
   # API Gateway Stack for LLM Agent
   ApiGatewayStack:

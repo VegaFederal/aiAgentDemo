@@ -115,9 +115,12 @@ jobs:
             VpcId=${{ env.VPC_ID }},
             SubnetIds=${{ env.SUBNET_IDS }},
             DocumentsBucketName=${{ env.DOCUMENTS_BUCKET_NAME }},
-            LambdaCodeBucket=${{ env.LAMBDA_CODE_BUCKET }}
+            LambdaCodeBucket=${{ env.LAMBDA_CODE_BUCKET }},
+            TemplateBucket=${{ env.TEMPLATE_BUCKET }},
+            TemplateVersion=$(date +%s)
           no-fail-on-empty-changeset: "1"
           capabilities: "CAPABILITY_NAMED_IAM"
+
 
       - name: Upload website files
         run: |

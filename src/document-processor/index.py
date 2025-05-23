@@ -1,16 +1,20 @@
 import json
 import os
 import boto3
+import logging
 import uuid
 import re
 import zipfile
-import io
 import tempfile
 
 # Initialize AWS clients
 s3 = boto3.client('s3')
 bedrock = boto3.client('bedrock-runtime')
 dynamodb = boto3.resource('dynamodb')
+
+# Initialize logging
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 # Environment variables
 EMBEDDINGS_TABLE = os.environ.get('EMBEDDINGS_TABLE')
@@ -20,34 +24,6 @@ CHUNK_OVERLAP = int(os.environ.get('CHUNK_OVERLAP', '200'))
 
 # Get table reference
 embeddings_table = dynamodb.Table(EMBEDDINGS_TABLE)
-
-def extract_text(bucket, key):
-    """Extract text from a document in S3 based on file extension"""
-    file_obj = s3.get_object(Bucket=bucket, Key=key)
-    content = file_obj['Body'].read()
-    
-    # Determine file type from extension
-    file_extension = key.split('.')[-1].lower()
-    
-    if file_extension == 'txt':
-        return content.decode('utf-8')
-    
-    elif file_extension == 'html' or file_extension == 'htm':
-        # Simple HTML text extraction
-        text = content.decode('utf-8')
-        # Remove HTML tags
-        text = re.sub(r'<[^>]+>', ' ', text)
-        # Remove extra whitespace
-        text = re.sub(r'\s+', ' ', text).strip()
-        return text
-    
-    elif file_extension == 'zip':
-        # Process ZIP file
-        return process_zip_file(content, key)
-    
-    else:
-        print(f"Skipping unsupported file type: {file_extension}")
-        return ""  # Return empty string for unsupported files
 
 def extract_links_from_html(html_content):
     """Extract all links from HTML content"""
@@ -70,6 +46,7 @@ def extract_links_from_html(html_content):
 
 def extract_document_id(filename, html_content):
     """Extract document ID from filename or HTML content"""
+    logging.info(f"Extracting document ID from filename: {filename}")
     # Try to extract from filename patterns
     if re.match(r'FAR_\d+\.html?', filename):
         return re.search(r'FAR_(\d+)\.html?', filename).group(1), 'FAR'
@@ -152,12 +129,6 @@ def parse_document_structure(file_contents):
                             'text': link['text']
                         })
     
-    # Identify document hierarchy based on link patterns
-    # FAR files are top level
-    # Part files are linked from FAR files
-    # Subpart files are linked from Part files
-    # Section files are linked from Subpart files
-    
     # Identify top-level files (typically FAR files or those not linked from others)
     all_linked_files = set()
     for links in link_map.values():
@@ -226,7 +197,9 @@ def parse_document_structure(file_contents):
                         child = build_hierarchy(link_basename, level + 1, doc_id, node['path'])
                         if child:
                             node['children'].append(child)
+    
         
+        logger.info(f"Node Returned = {node}")
         return node
     
     # Build the full hierarchy
@@ -240,6 +213,7 @@ def parse_document_structure(file_contents):
 def process_zip_file(zip_content, key):
     """Process a ZIP file and extract text from all HTML files with hierarchical structure based on HTML links"""
     print(f"Processing ZIP file: {key}")
+    logger.info(f"Processing ZIP file: {key}")
     
     # Create a temporary directory to extract files
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -363,17 +337,6 @@ def process_zip_file(zip_content, key):
                 structured_content.append(f"{header}\n\n{data['content']}")
     
     # Combine all text with separators
-    return "\n\n---\n\n".join(structured_content)                  processed_files.add(node['filename'])
-                for child in node.get('children', []):
-                    collect_filenames(child)
-            collect_filenames(structure)
-        
-        for file, data in file_contents.items():
-            if file not in processed_files:
-                header = f"File: {file}"
-                structured_content.append(f"{header}\n\n{data['content']}")
-    
-    # Combine all text with separators
     return "\n\n---\n\n".join(structured_content)
 
 def chunk_text(text, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP):
@@ -415,26 +378,31 @@ def extract_hierarchy_metadata(text_chunk):
     
     # Look for document type
     type_match = re.search(r'Type: ([^\|]+)', text_chunk)
+    logger.info(f"Type match: {type_match}")
     if type_match:
         hierarchy['doc_type'] = type_match.group(1).strip()
     
     # Look for document ID
     id_match = re.search(r'ID: ([^\|]+)', text_chunk)
+    logger.info(f"ID match: {id_match}")
     if id_match:
         hierarchy['doc_id'] = id_match.group(1).strip()
     
     # Look for parent ID
     parent_match = re.search(r'Parent: ([^\|]+)', text_chunk)
+    logger.info(f"Parent match: {parent_match}")
     if parent_match:
         hierarchy['parent_id'] = parent_match.group(1).strip()
     
     # Look for level information
     level_match = re.search(r'Level: ([^\|]+)', text_chunk)
+    logger.info(f"Level match: {level_match}")
     if level_match:
         hierarchy['level'] = level_match.group(1).strip()
     
     # Look for path information
     path_match = re.search(r'Path: ([^\|]+)', text_chunk)
+    logger.info(f"Path match: {path_match}")
     if path_match:
         hierarchy['path'] = path_match.group(1).strip()
         
@@ -445,20 +413,25 @@ def extract_hierarchy_metadata(text_chunk):
     
     # Look for title
     title_match = re.search(r'Title: ([^\|]+)', text_chunk)
+    logger.info(f"Title match: {title_match}")
     if title_match:
         hierarchy['title'] = title_match.group(1).strip()
     
     # Look for filename
     file_match = re.search(r'File: ([^\n]+)', text_chunk)
+    logger.info(f"File match: {file_match}")
     if file_match:
         hierarchy['filename'] = file_match.group(1).strip()
-    
+
+    logger.info(f"Hierarchy: {hierarchy}")
     return hierarchy
 
 def store_embedding(document_id, chunk_id, text_chunk, embedding, metadata):
     """Store embedding and metadata in DynamoDB with hierarchical information"""
     # Extract hierarchy information from the chunk
     hierarchy_metadata = extract_hierarchy_metadata(text_chunk)
+    print(f"Hierarchy metadata: {hierarchy_metadata}")
+    logger.info(f"Hierarchy metadata: {hierarchy_metadata}")
     
     # Merge with existing metadata
     enhanced_metadata = {
@@ -479,6 +452,7 @@ def store_embedding(document_id, chunk_id, text_chunk, embedding, metadata):
         'embedding_json': json.dumps(embedding),  # Store as JSON string
         'metadata': enhanced_metadata
     }
+    print(f"Item: {item}")
     
     # Add searchable attributes for hierarchy
     if 'doc_id' in hierarchy_metadata:
@@ -493,29 +467,89 @@ def store_embedding(document_id, chunk_id, text_chunk, embedding, metadata):
     embeddings_table.put_item(Item=item)
 
 def lambda_handler(event, context):
-    """Process documents from S3 and generate embeddings"""
+    """Process all documents in a bucket or specific prefix"""
     try:
-        # Get S3 bucket and key from event
-        record = event['Records'][0]
-        bucket = record['s3']['bucket']['name']
-        key = record['s3']['object']['key']
+        # Get bucket and optional prefix from event
+        bucket = event.get('bucket')
+        prefix = event.get('prefix', '')
+        logger.info(f"Processing documents in bucket: {bucket} with prefix: {prefix}")
         
-        print(f"Processing file: {key} from bucket: {bucket}")
+        if not bucket:
+            return {
+                'statusCode': 400,
+                'body': json.dumps({
+                    'message': 'Bucket name is required'
+                })
+            }
+        
+        # Check if we should process a ZIP file directly
+        zip_key = event.get('zipKey')
+        logger.info(f"ZIP key: {zip_key}")
+        if zip_key:
+            return process_single_zip(bucket, zip_key)
+        
+        # List all objects in the bucket with the given prefix
+        response = s3.list_objects_v2(Bucket=bucket, Prefix=prefix)
+        logger.info(f"Response: {response}")
+        if 'Contents' not in response:
+            logger.info(f"No files found in bucket {bucket} with prefix {prefix}")
+            return {
+                'statusCode': 404,
+                'body': json.dumps({
+                    'message': f'No files found in bucket {bucket} with prefix {prefix}'
+                })
+            }
+        
+        # Find ZIP files
+        zip_files = [obj['Key'] for obj in response['Contents'] 
+                    if obj['Key'].lower().endswith('.zip')]
+        logger.info(f"ZIP files: {zip_files}")
+        
+        if not zip_files:
+            return {
+                'statusCode': 404,
+                'body': json.dumps({
+                    'message': f'No ZIP files found in bucket {bucket} with prefix {prefix}'
+                })
+            }
+        
+        # Process the first ZIP file (or we could process all of them)
+        return process_single_zip(bucket, zip_files[0])
+        
+    except Exception as e:
+        print(f"Error processing documents: {str(e)}")
+        return {
+            'statusCode': 500,
+            'body': json.dumps({
+                'message': f'Error processing documents: {str(e)}'
+            })
+        }
+
+def process_single_zip(bucket, key):
+    """Process a single ZIP file containing all documents"""
+    try:
+        print(f"Processing ZIP file: {key} from bucket: {bucket}")
+        logger.info(f"Processing ZIP file: {key} from bucket: {bucket}")
+        
+        # Get the ZIP file
+        file_obj = s3.get_object(Bucket=bucket, Key=key)
+        content = file_obj['Body'].read()
+        
+        # Generate a document ID
+        document_id = str(uuid.uuid4())
         
         # Extract metadata if provided
         metadata = {}
-        # Try to get some basic metadata from S3
-        s3_metadata = s3.head_object(Bucket=bucket, Key=key).get('Metadata', {})
+        s3_metadata = file_obj.get('Metadata', {})
         metadata = {
             'filename': key.split('/')[-1],
+            'source_bucket': bucket,
+            'source_key': key,
             **s3_metadata
         }
         
-        # Generate a document ID if not provided
-        document_id = metadata.get('document_id', str(uuid.uuid4()))
-        
-        # Extract text from document
-        text = extract_text(bucket, key)
+        # Process the ZIP file to extract text with hierarchical structure
+        text = process_zip_file(content, key)
         
         # Split text into chunks
         chunks = chunk_text(text)
@@ -531,17 +565,17 @@ def lambda_handler(event, context):
         return {
             'statusCode': 200,
             'body': json.dumps({
-                'message': f'Successfully processed document {key}',
+                'message': f'Successfully processed ZIP file {key}',
                 'document_id': document_id,
                 'chunks_processed': len(chunks)
             })
         }
     
     except Exception as e:
-        print(f"Error processing document: {str(e)}")
+        print(f"Error processing ZIP file: {str(e)}")
         return {
             'statusCode': 500,
             'body': json.dumps({
-                'message': f'Error processing document: {str(e)}'
+                'message': f'Error processing ZIP file: {str(e)}'
             })
         }

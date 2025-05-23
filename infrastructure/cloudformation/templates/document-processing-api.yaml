@@ -49,6 +49,7 @@ Resources:
   # API Method
   ProcessDocumentsMethod:
     Type: AWS::ApiGateway::Method
+    DependsOn: ProcessAllDocumentsFunction
     Properties:
       RestApiId: !Ref DocumentProcessingApi
       ResourceId: !Ref ProcessDocumentsResource

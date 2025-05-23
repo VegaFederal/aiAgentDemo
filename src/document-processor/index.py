@@ -341,6 +341,7 @@ def process_zip_file(zip_content, key):
 
 def chunk_text(text, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP):
     """Split text into overlapping chunks of specified size"""
+    logger.info(f"Chunking text of length {len(text)}")
     chunks = []
     if len(text) <= chunk_size:
         chunks.append(text)

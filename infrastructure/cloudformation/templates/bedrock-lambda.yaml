@@ -11,6 +11,10 @@ Parameters:
       - prod
     Description: The deployment environment
     
+  ParentStackName:
+    Type: String
+    Description: Name of the parent stack for resource naming
+    
   DocumentsBucketName:
     Type: String
     Default: aiad-docs
@@ -19,6 +23,7 @@ Parameters:
   LambdaCodeBucket:
     Type: String
     Description: S3 bucket containing Lambda function code packages
+
 
 Resources:
   # DynamoDB Table for Document Embeddings
@@ -134,7 +139,7 @@ Resources:
     Type: AWS::Lambda::Function
     DependsOn: LambdaExecutionRole
     Properties:
-      FunctionName: !Sub ${AWS::StackName}-process-all-documents
+      FunctionName: !Sub ${ParentStackName}-process-all-documents
 
       Handler: index.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn

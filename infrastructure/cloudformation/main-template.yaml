@@ -64,9 +64,11 @@ Resources:
         Environment: !Ref Environment
         DocumentsBucketName: !Sub aiad-docs
         LambdaCodeBucket: !Ref LambdaCodeBucket
+        ParentStackName: !Ref AWS::StackName
       Tags:
         - Key: Environment
           Value: !Ref Environment
+
         
   # API Gateway Stack for LLM Agent
   ApiGatewayStack:

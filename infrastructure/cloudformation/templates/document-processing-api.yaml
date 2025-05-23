@@ -6,11 +6,7 @@ Parameters:
     Type: String
     Default: dev
     Description: Environment name
-  
-  DocumentProcessorFunctionName:
-    Type: String
-    Description: Name of the document processor Lambda function
-  
+    
   ProcessAllDocumentsFunctionName:
     Type: String
     Description: Name of the Lambda function to process all documents

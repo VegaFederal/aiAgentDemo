@@ -91,7 +91,6 @@ Resources:
       TemplateURL: ./templates/document-processing-api.yaml
       Parameters:
         Environment: !Ref Environment
-        DocumentProcessorFunctionName: !Sub "${AWS::StackName}-document-processor"
         ProcessAllDocumentsFunctionName: !Sub "${AWS::StackName}-process-all-documents"
         DocumentsBucketName: !Sub "${DocumentsBucketName}-${Environment}"
         LambdaCodeBucket: !Ref LambdaCodeBucket

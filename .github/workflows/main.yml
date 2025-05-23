@@ -16,9 +16,6 @@ on:
 
 env:
   Environment: dev
-  LAMBDA_ROLE_ARN: !GetAtt BedrockLambdaStack.Outputs.LambdaExecutionRoleArn
-  EMBEDDINGS_TABLE: !GetAtt BedrockLambdaStack.Outputs.EmbeddingsTableName
-
 
 jobs:
   test:

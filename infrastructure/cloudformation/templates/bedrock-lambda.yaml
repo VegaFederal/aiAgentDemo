@@ -329,3 +329,6 @@ Outputs:
   LlmAgentFunctionArn:
     Description: ARN of the LLM Agent Lambda function
     Value: !GetAtt LlmAgentFunction.Arn
+
+  LambdaExecutionRoleArn:
+    Value: !GetAtt LambdaExecutionRole

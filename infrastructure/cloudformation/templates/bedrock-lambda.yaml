@@ -134,7 +134,7 @@ Resources:
                   - !Sub arn:aws:s3:::${DocumentsBucketName}-${Environment}
                   - !Sub arn:aws:s3:::${DocumentsBucketName}-${Environment}/*
 
-  # Document Processor Lambda Function
+  # Document Processor for Lambda Function
   DocumentProcessorFunction:
     Type: AWS::Lambda::Function
     DependsOn: LambdaExecutionRole

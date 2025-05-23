@@ -23,6 +23,11 @@ Parameters:
   LambdaCodeBucket:
     Type: String
     Description: S3 bucket containing Lambda function code packages
+    
+  ProcessAllDocumentsFunctionArn:
+    Type: String
+    Description: ARN of the process all documents Lambda function
+
 
 
 Resources:
@@ -158,7 +163,6 @@ Resources:
   # S3 Bucket for Document Storage
   DocumentsBucket:
     Type: AWS::S3::Bucket
-    DependsOn: DocumentProcessorPermission
     Properties:
       BucketName: !Sub ${DocumentsBucketName}-${Environment}
       VersioningConfiguration:
@@ -170,7 +174,7 @@ Resources:
       NotificationConfiguration:
         LambdaConfigurations:
           - Event: "s3:ObjectCreated:*"
-            Function: !GetAtt DocumentProcessorFunction.Arn
+            Function: !Ref ProcessAllDocumentsFunctionArn
       Tags:
         - Key: Environment
           Value: !Ref Environment

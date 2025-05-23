@@ -131,6 +131,10 @@ jobs:
           LAMBDA_ROLE_ARN=$(aws cloudformation describe-stacks --stack-name $BEDROCK_STACK_ID --query "Stacks[0].Outputs[?OutputKey=='LambdaExecutionRoleArn'].OutputValue" --output text)
           EMBEDDINGS_TABLE=$(aws cloudformation describe-stacks --stack-name $BEDROCK_STACK_ID --query "Stacks[0].Outputs[?OutputKey=='EmbeddingsTableName'].OutputValue" --output text)
           
+          # Output env values
+          echo "LAMBDA_ROLE: $LAMBDA_ROLE_ARN"
+          echo "EMBEDDINGS_TABLE: $EMBEDDINGS_TABLE"
+          
           # Function to update or create Lambda
           update_or_create_lambda() {
             FUNCTION_NAME=$1

@@ -1,6 +1,7 @@
 import json
 import os
 import boto3
+import logging
 import uuid
 import re
 import zipfile
@@ -10,6 +11,10 @@ import tempfile
 s3 = boto3.client('s3')
 bedrock = boto3.client('bedrock-runtime')
 dynamodb = boto3.resource('dynamodb')
+
+# Initialize logging
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 # Environment variables
 EMBEDDINGS_TABLE = os.environ.get('EMBEDDINGS_TABLE')
@@ -191,7 +196,9 @@ def parse_document_structure(file_contents):
                         child = build_hierarchy(link_basename, level + 1, doc_id, node['path'])
                         if child:
                             node['children'].append(child)
+    
         
+        logger.info(f"Node Returned = {node}")
         return node
     
     # Build the full hierarchy
@@ -205,6 +212,7 @@ def parse_document_structure(file_contents):
 def process_zip_file(zip_content, key):
     """Process a ZIP file and extract text from all HTML files with hierarchical structure based on HTML links"""
     print(f"Processing ZIP file: {key}")
+    logger.info(f"Processing ZIP file: {key}")
     
     # Create a temporary directory to extract files
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -369,26 +377,31 @@ def extract_hierarchy_metadata(text_chunk):
     
     # Look for document type
     type_match = re.search(r'Type: ([^\|]+)', text_chunk)
+    logger.info(f"Type match: {type_match}")
     if type_match:
         hierarchy['doc_type'] = type_match.group(1).strip()
     
     # Look for document ID
     id_match = re.search(r'ID: ([^\|]+)', text_chunk)
+    logger.info(f"ID match: {id_match}")
     if id_match:
         hierarchy['doc_id'] = id_match.group(1).strip()
     
     # Look for parent ID
     parent_match = re.search(r'Parent: ([^\|]+)', text_chunk)
+    logger.info(f"Parent match: {parent_match}")
     if parent_match:
         hierarchy['parent_id'] = parent_match.group(1).strip()
     
     # Look for level information
     level_match = re.search(r'Level: ([^\|]+)', text_chunk)
+    logger.info(f"Level match: {level_match}")
     if level_match:
         hierarchy['level'] = level_match.group(1).strip()
     
     # Look for path information
     path_match = re.search(r'Path: ([^\|]+)', text_chunk)
+    logger.info(f"Path match: {path_match}")
     if path_match:
         hierarchy['path'] = path_match.group(1).strip()
         
@@ -399,20 +412,25 @@ def extract_hierarchy_metadata(text_chunk):
     
     # Look for title
     title_match = re.search(r'Title: ([^\|]+)', text_chunk)
+    logger.info(f"Title match: {title_match}")
     if title_match:
         hierarchy['title'] = title_match.group(1).strip()
     
     # Look for filename
     file_match = re.search(r'File: ([^\n]+)', text_chunk)
+    logger.info(f"File match: {file_match}")
     if file_match:
         hierarchy['filename'] = file_match.group(1).strip()
-    
+
+    logger.info(f"Hierarchy: {hierarchy}")
     return hierarchy
 
 def store_embedding(document_id, chunk_id, text_chunk, embedding, metadata):
     """Store embedding and metadata in DynamoDB with hierarchical information"""
     # Extract hierarchy information from the chunk
     hierarchy_metadata = extract_hierarchy_metadata(text_chunk)
+    print(f"Hierarchy metadata: {hierarchy_metadata}")
+    logger.info(f"Hierarchy metadata: {hierarchy_metadata}")
     
     # Merge with existing metadata
     enhanced_metadata = {
@@ -433,6 +451,7 @@ def store_embedding(document_id, chunk_id, text_chunk, embedding, metadata):
         'embedding_json': json.dumps(embedding),  # Store as JSON string
         'metadata': enhanced_metadata
     }
+    print(f"Item: {item}")
     
     # Add searchable attributes for hierarchy
     if 'doc_id' in hierarchy_metadata:
@@ -452,6 +471,7 @@ def lambda_handler(event, context):
         # Get bucket and optional prefix from event
         bucket = event.get('bucket')
         prefix = event.get('prefix', '')
+        logger.info(f"Processing documents in bucket: {bucket} with prefix: {prefix}")
         
         if not bucket:
             return {
@@ -463,13 +483,15 @@ def lambda_handler(event, context):
         
         # Check if we should process a ZIP file directly
         zip_key = event.get('zipKey')
+        logger.info(f"ZIP key: {zip_key}")
         if zip_key:
             return process_single_zip(bucket, zip_key)
         
         # List all objects in the bucket with the given prefix
         response = s3.list_objects_v2(Bucket=bucket, Prefix=prefix)
-        
+        logger.info(f"Response: {response}")
         if 'Contents' not in response:
+            logger.info(f"No files found in bucket {bucket} with prefix {prefix}")
             return {
                 'statusCode': 404,
                 'body': json.dumps({
@@ -480,6 +502,7 @@ def lambda_handler(event, context):
         # Find ZIP files
         zip_files = [obj['Key'] for obj in response['Contents'] 
                     if obj['Key'].lower().endswith('.zip')]
+        logger.info(f"ZIP files: {zip_files}")
         
         if not zip_files:
             return {
@@ -505,6 +528,7 @@ def process_single_zip(bucket, key):
     """Process a single ZIP file containing all documents"""
     try:
         print(f"Processing ZIP file: {key} from bucket: {bucket}")
+        logger.info(f"Processing ZIP file: {key} from bucket: {bucket}")
         
         # Get the ZIP file
         file_obj = s3.get_object(Bucket=bucket, Key=key)

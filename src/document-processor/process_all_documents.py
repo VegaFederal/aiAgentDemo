@@ -47,6 +47,7 @@ def extract_links_from_html(html_content):
 
 def extract_document_id(filename, html_content):
     """Extract document ID from filename or HTML content"""
+    logging.info(f"Extracting document ID from filename: {filename}")
     # Try to extract from filename patterns
     if re.match(r'FAR_\d+\.html?', filename):
         return re.search(r'FAR_(\d+)\.html?', filename).group(1), 'FAR'

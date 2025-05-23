@@ -90,8 +90,9 @@ jobs:
           
           # Package document processor Lambda
           cd src/document-processor
+          rm -f index.py  # Remove old file if it exists
+          mv process_all_documents.py index.py  # Rename new file to index.py
           pip install -r requirements.txt -t .
-          cp process_all_documents.py .  # Copy the new file
           zip -r document-processor.zip .
           aws s3 cp document-processor.zip s3://$LAMBDA_CODE_BUCKET/lambda/document-processor.zip
           cd ../..
@@ -102,6 +103,7 @@ jobs:
           zip -r llm-agent.zip .
           aws s3 cp llm-agent.zip s3://$LAMBDA_CODE_BUCKET/lambda/llm-agent.zip
           cd ../..
+
 
       - name: Deploy CloudFormation stack
         uses: aws-actions/aws-cloudformation-github-deploy@v1

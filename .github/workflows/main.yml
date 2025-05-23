@@ -91,6 +91,7 @@ jobs:
           # Package document processor Lambda
           cd src/document-processor
           pip install -r requirements.txt -t .
+          cp process_all_documents.py .  # Copy the new file
           zip -r document-processor.zip .
           aws s3 cp document-processor.zip s3://$LAMBDA_CODE_BUCKET/lambda/document-processor.zip
           cd ../..
@@ -132,12 +133,18 @@ jobs:
           aws lambda update-function-code \
             --function-name $DOC_PROCESSOR_FUNCTION \
             --s3-bucket $LAMBDA_CODE_BUCKET \
-            --s3-key lambda/document-processor.zip
+            --s3-key lambda/document-processor.zip \
+            --publish
             
           aws lambda update-function-code \
             --function-name $LLM_AGENT_FUNCTION \
             --s3-bucket $LAMBDA_CODE_BUCKET \
-            --s3-key lambda/llm-agent.zip
+            --s3-key lambda/llm-agent.zip \
+            --publish
+            
+          # Wait for Lambda updates to complete
+          aws lambda wait function-updated --function-name $DOC_PROCESSOR_FUNCTION
+          aws lambda wait function-updated --function-name $LLM_AGENT_FUNCTION
 
       - name: Get CloudFront URL
         run: |

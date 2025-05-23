@@ -134,7 +134,8 @@ Resources:
     Type: AWS::Lambda::Function
     DependsOn: LambdaExecutionRole
     Properties:
-      FunctionName: !Sub aiad-doc-processor-${Environment}
+      FunctionName: !Sub ${AWS::StackName}-process-all-documents
+
       Handler: index.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
       Runtime: python3.11

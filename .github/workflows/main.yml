@@ -169,7 +169,7 @@ jobs:
           }
           
           # Update or create document processor Lambda
-          update_or_create_lambda "aiad-doc-processor-dev" "index.lambda_handler" "lambda/document-processor.zip"
+          update_or_create_lambda "${PROJECT_NAME}-process-all-documents" "index.lambda_handler" "lambda/document-processor.zip"
           
           # Update or create LLM agent Lambda
           update_or_create_lambda "aiad-llm-agent-dev" "index.lambda_handler" "lambda/llm-agent.zip"

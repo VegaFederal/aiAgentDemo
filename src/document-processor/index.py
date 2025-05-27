@@ -115,7 +115,7 @@ def parse_document_structure(file_contents):
                 
                 # Extract links
                 links = extract_links_from_html(html_content)
-                logger.info(f"Extracted links: {links} from {filename}")
+                logger.info(f"A1 Extracted links: {links} from {filename}")
 
                 for link in links:
                     # Normalize link to match filenames
@@ -123,7 +123,7 @@ def parse_document_structure(file_contents):
                     link_basename = os.path.basename(link_url)
                     logger.info(f"A1 Normalized link basename: {link_basename}")
                     logger.info(f"A1 File Contents: {file_contents}")
-                    if link_basename in file_contents:
+                    if html_content.find(link_basename):
                         # Add to link map with link text for context
                         if link_basename not in link_map:
                             link_map[link_basename] = []
@@ -209,16 +209,17 @@ def parse_document_structure(file_contents):
                             node['children'].append(child)
     
         
-        logger.info(f"Node Returned = {node}")
+        logger.info(f"A2 Node Returned = {node}")
         return node
     
     # Build the full hierarchy
     for top_file in sorted(top_level_files):
         hierarchy = build_hierarchy(top_file)
-        logger.info(f"Hierarchy = {hierarchy}")
+        logger.info(f"A1 Hierarchy = {hierarchy}")
         if hierarchy:
             document_structure[top_file] = hierarchy
     
+    logger.info(f"A1 Document Structure = {document_structure}")
     return document_structure        
 
 def chunk_text(text, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP):
@@ -350,11 +351,12 @@ def store_embedding(document_id, chunk_id, text_chunk, embedding, metadata):
     embeddings_table.put_item(Item=item)
 
 def process_files(bucket, s3_objects):
-    logger.info(f"Processing {len(s3_objects)} files in bucket: {bucket}")
+    logger.info(f"B1 Processing {len(s3_objects)} files in bucket: {bucket}")
     # Get list of all HTML/TXT files
     file_contents = {}
     for s3_object in s3_objects:
         file_name = s3_object['Key']
+        logger.info(f"B1 Processing file: {file_name}")
         if file_name.endswith(('.html', '.htm', '.txt')):
             try:
               # Get file content from S3
@@ -370,6 +372,7 @@ def process_files(bucket, s3_objects):
                     
                     # Extract document ID from content
                     doc_id, doc_type = extract_document_id(file_name, content)
+                    logger.info(f"B1 Document ID: {doc_id}, Document Type: {doc_type}")
                     
                     # Remove HTML tags for text content
                     text_content = re.sub(r'<[^>]+>', ' ', content)
@@ -395,14 +398,14 @@ def process_files(bucket, s3_objects):
         
         # Parse document structure using HTML links
         document_structure = parse_document_structure(file_contents)
-        logger.info(f"Document Structure: {document_structure}")
+        logger.info(f"B1 Document Structure: {document_structure}")
 
         # Process files with hierarchical context
         structured_content = []
                 
         # Helper function to process nodes recursively
         def process_node(node):
-            logger.info(f"Processing recursive node: {node}")
+            logger.info(f"B2 Processing recursive node: {node}")
             filename = node.get('filename')
             if filename in file_contents:
                 content = file_contents[filename]['content']
@@ -431,7 +434,7 @@ def process_files(bucket, s3_objects):
                 
                 # Process children recursively
                 for child in node.get('children', []):
-                    logger.info(f"Child node: {child}")
+                    logger.info(f"B2 Child node: {child}")
                     process_node(child)
 
         # Process top-level nodes

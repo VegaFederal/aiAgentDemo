@@ -105,6 +105,8 @@ def parse_document_structure(file_contents):
             if html_content:
                 # Extract document ID and type
                 doc_id, doc_type = extract_document_id(filename, html_content)
+                logger.info(f"Extracted document ID: {doc_id} for file: {filename}")
+
                 if doc_id:
                     document_ids[filename] = {
                         'id': doc_id,
@@ -113,10 +115,13 @@ def parse_document_structure(file_contents):
                 
                 # Extract links
                 links = extract_links_from_html(html_content)
+                logger.info(f"Extracted links: {links}")
+
                 for link in links:
                     # Normalize link to match filenames
                     link_url = link['url']
                     link_basename = os.path.basename(link_url)
+                    logger.info(f"Normalized link basename: {link_basename}")
                     if link_basename in file_contents:
                         # Add to link map with link text for context
                         if link_basename not in link_map:
@@ -141,6 +146,7 @@ def parse_document_structure(file_contents):
     # Build hierarchy starting from top-level files
     def build_hierarchy(filename, level=1, parent_id=None, parent_path=None):
         if filename not in file_contents:
+            logger.info(f"File not found: {filename}")
             return None
         
         # Get document ID and type
@@ -172,10 +178,13 @@ def parse_document_structure(file_contents):
         html_content = file_contents[filename].get('original_html', '')
         if html_content:
             links = extract_links_from_html(html_content)
+            logger.info(f"Extracted links: {links}")
             for link in links:
                 link_url = link['url']
+                logger.info(f"Link URL: {link_url}")
                 link_basename = os.path.basename(link_url)
                 if link_basename in file_contents and link_basename != filename:
+                    logger.info(f"Link basename: {link_basename}")
                     # Check if this is a child document based on ID patterns
                     is_child = False
                     
@@ -380,14 +389,11 @@ def process_files(bucket, s3_objects):
         
         # Parse document structure using HTML links
         document_structure = parse_document_structure(file_contents)
-        
+        logger.info(f"Document Structure: {document_structure}")
+
         # Process files with hierarchical context
         structured_content = []
                 
-        # Process top-level nodes
-        for filename, node in document_structure.items():
-            process_node(node)
-        
         # Helper function to process nodes recursively
         def process_node(node):
             filename = node.get('filename')
@@ -418,8 +424,14 @@ def process_files(bucket, s3_objects):
                 
                 # Process children recursively
                 for child in node.get('children', []):
+                    logger.info(f"Child node: {child}")
                     process_node(child)
 
+        # Process top-level nodes
+        for filename, node in document_structure.items():
+            logger.info(f"Top-level node: {node}")
+            process_node(node)
+        
         # Add any remaining files that weren't part of the hierarchy
         processed_files = set()
         for structure in document_structure.values():

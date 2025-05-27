@@ -115,7 +115,7 @@ def parse_document_structure(file_contents):
                 
                 # Extract links
                 links = extract_links_from_html(html_content)
-                logger.info(f"Extracted links: {links}")
+                logger.info(f"Extracted links: {links} from {filename}")
 
                 for link in links:
                     # Normalize link to match filenames
@@ -211,6 +211,7 @@ def parse_document_structure(file_contents):
     # Build the full hierarchy
     for top_file in sorted(top_level_files):
         hierarchy = build_hierarchy(top_file)
+        logger.info(f"Hierarchy = {hierarchy}")
         if hierarchy:
             document_structure[top_file] = hierarchy
     
@@ -345,6 +346,7 @@ def store_embedding(document_id, chunk_id, text_chunk, embedding, metadata):
     embeddings_table.put_item(Item=item)
 
 def process_files(bucket, s3_objects):
+    logger.info(f"Processing {len(s3_objects)} files in bucket: {bucket}")
     # Get list of all HTML/TXT files
     file_contents = {}
     for s3_object in s3_objects:
@@ -396,6 +398,7 @@ def process_files(bucket, s3_objects):
                 
         # Helper function to process nodes recursively
         def process_node(node):
+            logger.info(f"Processing recursive node: {node}")
             filename = node.get('filename')
             if filename in file_contents:
                 content = file_contents[filename]['content']
@@ -462,6 +465,7 @@ def process_files(bucket, s3_objects):
     return structured_content
 
 def process_chunks(chunks, document_id, metadata):
+    logger.info(f"Processing {len(chunks)} chunks for document {document_id}")
     # Process each chunk
     for i, chunk in enumerate(chunks):
         # Generate embedding
@@ -478,7 +482,7 @@ def process_bucket(bucket):
 
         # List all objects in the bucket with the given prefix
         response = s3.list_objects_v2(Bucket=bucket)
-        logger.info(f"Response: {response}")
+        logger.info(f"List of all objects in Bucket: {response}")
 
         if 'Contents' not in response:
             logger.info(f"No files found in bucket {bucket}")
@@ -489,10 +493,11 @@ def process_bucket(bucket):
                 })
             }
         structured_content = process_files(bucket, response['Contents'])
-
+        logger.info(f"Structured content: {structured_content}")
         total_chunks = 0
         processed_docs = []
 
+        logger.info(f"Processing {len(structured_content)} documents")
         for content_item in structured_content:
             text = content_item['content']
             document_id = content_item['doc_id']

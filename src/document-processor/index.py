@@ -2,10 +2,7 @@ import json
 import os
 import boto3
 import logging
-import uuid
 import re
-import zipfile
-import tempfile
 
 # Initialize AWS clients
 s3 = boto3.client('s3')
@@ -46,7 +43,7 @@ def extract_links_from_html(html_content):
 
 def extract_document_id(filename, html_content):
     """Extract document ID from filename or HTML content"""
-    logging.info(f"Extracting document ID from filename: {filename}")
+    logger.info(f"Extracting document ID from filename: {filename}")
     # Try to extract from filename patterns
     if re.match(r'FAR_\d+\.html?', filename):
         return re.search(r'FAR_(\d+)\.html?', filename).group(1), 'FAR'
@@ -208,136 +205,7 @@ def parse_document_structure(file_contents):
         if hierarchy:
             document_structure[top_file] = hierarchy
     
-    return document_structure
-
-def process_zip_file(zip_content, key):
-    """Process a ZIP file and extract text from all HTML files with hierarchical structure based on HTML links"""
-    print(f"Processing ZIP file: {key}")
-    logger.info(f"Processing ZIP file: {key}")
-    
-    # Create a temporary directory to extract files
-    with tempfile.TemporaryDirectory() as temp_dir:
-        zip_path = os.path.join(temp_dir, "archive.zip")
-        
-        # Write the ZIP content to a file
-        with open(zip_path, 'wb') as f:
-            f.write(zip_content)
-        
-        # Extract all files
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(temp_dir)
-        
-        # Get list of all HTML/TXT files
-        file_contents = {}
-        
-        for root, dirs, files in os.walk(temp_dir):
-            for file in files:
-                if file.endswith(('.html', '.htm', '.txt')):
-                    file_path = os.path.join(root, file)
-                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                        try:
-                            content = f.read()
-                            if file.endswith(('.html', '.htm')):
-                                # Store original HTML for link extraction
-                                original_html = content
-                                
-                                # Extract title for metadata
-                                title_match = re.search(r'<title>(.*?)</title>', content, re.IGNORECASE)
-                                title = title_match.group(1) if title_match else file
-                                
-                                # Extract document ID from content
-                                doc_id, doc_type = extract_document_id(file, content)
-                                
-                                # Remove HTML tags for text content
-                                text_content = re.sub(r'<[^>]+>', ' ', content)
-                                # Remove extra whitespace
-                                text_content = re.sub(r'\s+', ' ', text_content).strip()
-                                
-                                file_contents[file] = {
-                                    'content': text_content,
-                                    'original_html': original_html,
-                                    'title': title,
-                                    'doc_id': doc_id,
-                                    'doc_type': doc_type
-                                }
-                            else:
-                                file_contents[file] = {
-                                    'content': content,
-                                    'title': file
-                                }
-                        except Exception as e:
-                            print(f"Error processing file {file}: {str(e)}")
-        
-        # Parse document structure using HTML links
-        document_structure = parse_document_structure(file_contents)
-        
-        # Process files with hierarchical context
-        structured_content = []
-        
-        # Helper function to process nodes recursively
-        def process_node(node, parent_path=None):
-            filename = node.get('filename')
-            if filename in file_contents:
-                content = file_contents[filename]['content']
-                title = file_contents[filename].get('title', filename)
-                doc_type = node.get('type', 'Unknown')
-                doc_id = node.get('id', 'unknown')
-                
-                # Use the path from the node if available
-                current_path = node.get('path', doc_id)
-                
-                # Create hierarchical header
-                header_parts = [
-                    f"Type: {doc_type}",
-                    f"ID: {doc_id}",
-                    f"Level: {node.get('level', 0)}",
-                    f"Path: {current_path}",
-                    f"Title: {title}",
-                    f"File: {filename}"
-                ]
-                
-                if 'parent_id' in node:
-                    header_parts.insert(2, f"Parent: {node['parent_id']}")
-                    
-                header = " | ".join(header_parts)
-                structured_content.append(f"{header}\n\n{content}")
-                
-                # Process children recursively
-                for child in node.get('children', []):
-                    process_node(child)
-        
-        # Process top-level nodes
-        for filename, node in document_structure.items():
-            process_node(node)
-        
-        # Add any remaining files that weren't part of the hierarchy
-        processed_files = set()
-        for structure in document_structure.values():
-            def collect_filenames(node):
-                if 'filename' in node:
-                    processed_files.add(node['filename'])
-                for child in node.get('children', []):
-                    collect_filenames(child)
-            collect_filenames(structure)
-        
-        for file, data in file_contents.items():
-            if file not in processed_files:
-                title = data.get('title', file)
-                doc_id = data.get('doc_id')
-                doc_type = data.get('doc_type', 'Unknown')
-                
-                header_parts = [
-                    f"Type: {doc_type}" if doc_type else "Type: Standalone",
-                    f"ID: {doc_id}" if doc_id else "ID: unknown",
-                    f"Title: {title}",
-                    f"File: {file}"
-                ]
-                
-                header = " | ".join(header_parts)
-                structured_content.append(f"{header}\n\n{data['content']}")
-    
-    # Combine all text with separators
-    return "\n\n---\n\n".join(structured_content)
+    return document_structure        
 
 def chunk_text(text, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP):
     """Split text into overlapping chunks of specified size"""
@@ -431,8 +299,8 @@ def store_embedding(document_id, chunk_id, text_chunk, embedding, metadata):
     """Store embedding and metadata in DynamoDB with hierarchical information"""
     # Extract hierarchy information from the chunk
     hierarchy_metadata = extract_hierarchy_metadata(text_chunk)
-    print(f"Hierarchy metadata: {hierarchy_metadata}")
-    logger.info(f"Hierarchy metadata: {hierarchy_metadata}")
+    logger.info(f"Extracted hierarchy metadata: {hierarchy_metadata}")
+    logger.info(f"Metadata: {metadata}")
     
     # Merge with existing metadata
     enhanced_metadata = {
@@ -453,7 +321,7 @@ def store_embedding(document_id, chunk_id, text_chunk, embedding, metadata):
         'embedding_json': json.dumps(embedding),  # Store as JSON string
         'metadata': enhanced_metadata
     }
-    print(f"Item: {item}")
+    logger.info(f"Storing item: {item}")
     
     # Add searchable attributes for hierarchy
     if 'doc_id' in hierarchy_metadata:
@@ -467,6 +335,186 @@ def store_embedding(document_id, chunk_id, text_chunk, embedding, metadata):
     
     embeddings_table.put_item(Item=item)
 
+def process_files(bucket, s3_objects):
+    # Get list of all HTML/TXT files
+    file_contents = {}
+    for s3_object in s3_objects:
+        file_name = s3_object['Key']
+        if file_name.endswith(('.html', '.htm', '.txt')):
+            try:
+              # Get file content from S3
+                file_obj = s3.get_object(Bucket=bucket, Key=file_name)
+                content = file_obj['Body'].read().decode('utf-8', errors='ignore')
+                if file_name.endswith(('.html', '.htm')):
+                    # Store original HTML for link extraction
+                    original_html = content
+                    
+                    # Extract title for metadata
+                    title_match = re.search(r'<title>(.*?)</title>', content, re.IGNORECASE)
+                    title = title_match.group(1) if title_match else file_name
+                    
+                    # Extract document ID from content
+                    doc_id, doc_type = extract_document_id(file_name, content)
+                    
+                    # Remove HTML tags for text content
+                    text_content = re.sub(r'<[^>]+>', ' ', content)
+                    # Remove extra whitespace
+                    text_content = re.sub(r'\s+', ' ', text_content).strip()
+                    
+                    file_contents[file_name] = {
+                        'content': text_content,
+                        'original_html': original_html,
+                        'title': title,
+                        'doc_id': doc_id,
+                        'doc_type': doc_type,
+                        's3_metadata': s3_object.get('Metadata', {})
+                    }
+                else:
+                    file_contents[file_name] = {
+                        'content': content,
+                        'title': file_name,
+                        's3_metadata':s3_object.get('Metadata',{})
+                    }
+            except Exception as e:
+                print(f"Error processing file {file_name}: {str(e)}")
+        
+        # Parse document structure using HTML links
+        document_structure = parse_document_structure(file_contents)
+        
+        # Process files with hierarchical context
+        structured_content = []
+                
+        # Process top-level nodes
+        for filename, node in document_structure.items():
+            process_node(node)
+        
+        # Helper function to process nodes recursively
+        def process_node(node):
+            filename = node.get('filename')
+            if filename in file_contents:
+                content = file_contents[filename]['content']
+                title = file_contents[filename].get('title', filename)
+                doc_type = node.get('type', 'Unknown')
+                doc_id = node.get('id', 'unknown')
+                
+                # Use the path from the node if available
+                current_path = node.get('path', doc_id)
+                
+                # Create hierarchical header
+                header_parts = [
+                    f"Type: {doc_type}",
+                    f"ID: {doc_id}",
+                    f"Level: {node.get('level', 0)}",
+                    f"Path: {current_path}",
+                    f"Title: {title}",
+                    f"File: {filename}"
+                ]
+                
+                if 'parent_id' in node:
+                    header_parts.insert(2, f"Parent: {node['parent_id']}")
+                    
+                header = " | ".join(header_parts)
+                structured_content.append(f"{header}\n\n{content}")
+                
+                # Process children recursively
+                for child in node.get('children', []):
+                    process_node(child)
+
+        # Add any remaining files that weren't part of the hierarchy
+        processed_files = set()
+        for structure in document_structure.values():
+            def collect_filenames(node):
+                if 'filename' in node:
+                    processed_files.add(node['filename'])
+                for child in node.get('children', []):
+                    collect_filenames(child)
+            collect_filenames(structure)
+        
+        for file, data in file_contents.items():
+            if file not in processed_files:
+                title = data.get('title', file)
+                doc_id = data.get('doc_id')
+                doc_type = data.get('doc_type', 'Unknown')
+                
+                header_parts = [
+                    f"Type: {doc_type}" if doc_type else "Type: Standalone",
+                    f"ID: {doc_id}" if doc_id else "ID: unknown",
+                    f"Title: {title}",
+                    f"File: {file}"
+                ]
+                
+                header = " | ".join(header_parts)
+                structured_content.append(f"{header}\n\n{data['content']}")
+    
+    # Combine all text with separators
+    return structured_content
+
+def process_chunks(chunks, document_id, metadata):
+    # Process each chunk
+    for i, chunk in enumerate(chunks):
+        # Generate embedding
+        embedding = generate_embedding(chunk)
+        
+        # Store in DynamoDB
+        store_embedding(document_id, i, chunk, embedding, metadata)
+        
+
+def process_bucket(bucket):
+    """Process all documents in a bucket or specific prefix"""
+    try:
+        logger.info(f"Processing documents in bucket: {bucket}")
+
+        # List all objects in the bucket with the given prefix
+        response = s3.list_objects_v2(Bucket=bucket)
+        logger.info(f"Response: {response}")
+
+        if 'Contents' not in response:
+            logger.info(f"No files found in bucket {bucket}")
+            return {
+                'statusCode': 404,
+                'body': json.dumps({
+                    'message': f'No files found in bucket {bucket}'
+                })
+            }
+        structured_content = process_files(bucket, response['Contents'])
+
+        total_chunks = 0
+        processed_docs = []
+
+        for content_item in structured_content:
+            text = content_item['content']
+            document_id = content_item['doc_id']
+
+            # Split text into chunks
+            chunks = chunk_text(text)
+            total_chunks += len(chunks)
+
+            # Create metadata
+            metadata = {
+                'filename': content_item['file'],
+                'source_bucket': bucket,
+                'source_key': content_item.get('s3_key'),
+                **content_item.get('s3_metadata', {})
+            }
+            process_chunks(chunks, document_id, metadata)
+            processed_docs.append(document_id)
+
+        return {
+            'statusCode': 200,
+            'body': json.dumps({
+                'message': f'Successfully processed bucket {bucket}',
+                'documents_processed': len(processed_docs),
+                'chunks_processed': total_chunks
+            })
+        }
+    except Exception as e:
+        print(f"Error processing documents: {str(e)}")
+        return {
+            'statusCode': 500,
+            'body': json.dumps({
+                'message': f'Error processing documents: {str(e)}'
+            })
+        }
 def lambda_handler(event, context):
     """Process all documents in a bucket or specific prefix"""
     try:
@@ -482,101 +530,12 @@ def lambda_handler(event, context):
                     'message': 'Bucket name is required'
                 })
             }
-        
-        # Check if we should process a ZIP file directly
-        zip_key = event.get('zipKey')
-        logger.info(f"ZIP key: {zip_key}")
-        if zip_key:
-            return process_single_zip(bucket, zip_key)
-        
-        # List all objects in the bucket with the given prefix
-        response = s3.list_objects_v2(Bucket=bucket, Prefix=prefix)
-        logger.info(f"Response: {response}")
-        if 'Contents' not in response:
-            logger.info(f"No files found in bucket {bucket} with prefix {prefix}")
-            return {
-                'statusCode': 404,
-                'body': json.dumps({
-                    'message': f'No files found in bucket {bucket} with prefix {prefix}'
-                })
-            }
-        
-        # Find ZIP files
-        zip_files = [obj['Key'] for obj in response['Contents'] 
-                    if obj['Key'].lower().endswith('.zip')]
-        logger.info(f"ZIP files: {zip_files}")
-        
-        if not zip_files:
-            return {
-                'statusCode': 404,
-                'body': json.dumps({
-                    'message': f'No ZIP files found in bucket {bucket} with prefix {prefix}'
-                })
-            }
-        
-        # Process the first ZIP file (or we could process all of them)
-        return process_single_zip(bucket, zip_files[0])
-        
+        return process_bucket(bucket)        
     except Exception as e:
-        print(f"Error processing documents: {str(e)}")
+        logger.error(f"Error processing documents: {str(e)}")
         return {
             'statusCode': 500,
             'body': json.dumps({
                 'message': f'Error processing documents: {str(e)}'
-            })
-        }
-
-def process_single_zip(bucket, key):
-    """Process a single ZIP file containing all documents"""
-    try:
-        print(f"Processing ZIP file: {key} from bucket: {bucket}")
-        logger.info(f"Processing ZIP file: {key} from bucket: {bucket}")
-        
-        # Get the ZIP file
-        file_obj = s3.get_object(Bucket=bucket, Key=key)
-        content = file_obj['Body'].read()
-        
-        # Generate a document ID
-        document_id = str(uuid.uuid4())
-        
-        # Extract metadata if provided
-        metadata = {}
-        s3_metadata = file_obj.get('Metadata', {})
-        metadata = {
-            'filename': key.split('/')[-1],
-            'source_bucket': bucket,
-            'source_key': key,
-            **s3_metadata
-        }
-        
-        # Process the ZIP file to extract text with hierarchical structure
-        text = process_zip_file(content, key)
-        
-        # Split text into chunks
-        chunks = chunk_text(text)
-        
-        # Process each chunk
-        for i, chunk in enumerate(chunks):
-            # Generate embedding
-            embedding = generate_embedding(chunk)
-            
-            # Store in DynamoDB
-            store_embedding(document_id, i, chunk, embedding, metadata)
-        
-        return {
-            'statusCode': 200,
-            'body': json.dumps({
-                'message': f'Successfully processed ZIP file {key}',
-                'document_id': document_id,
-                'chunks_processed': len(chunks)
-            })
-        }
-    
-    except Exception as e:
-        print(f"Error processing ZIP file: {str(e)}")
-        return {
-            'statusCode': 500,
-            'body': json.dumps({
-                'message': f'Error processing ZIP file: {str(e)}'
             })
         }

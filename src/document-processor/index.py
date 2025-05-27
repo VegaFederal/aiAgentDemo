@@ -105,7 +105,7 @@ def parse_document_structure(file_contents):
             if html_content:
                 # Extract document ID and type
                 doc_id, doc_type = extract_document_id(filename, html_content)
-                logger.info(f"Extracted document ID: {doc_id} for file: {filename}")
+                logger.info(f"A1 Extracted document ID: {doc_id} for file: {filename}")
 
                 if doc_id:
                     document_ids[filename] = {
@@ -121,7 +121,8 @@ def parse_document_structure(file_contents):
                     # Normalize link to match filenames
                     link_url = link['url']
                     link_basename = os.path.basename(link_url)
-                    logger.info(f"Normalized link basename: {link_basename}")
+                    logger.info(f"A1 Normalized link basename: {link_basename}")
+                    logger.info(f"A1 File Contents: {file_contents}")
                     if link_basename in file_contents:
                         # Add to link map with link text for context
                         if link_basename not in link_map:
@@ -131,6 +132,7 @@ def parse_document_structure(file_contents):
                             'text': link['text']
                         })
     
+    logger.info(f"A1 Link Map: {link_map}")
     # Identify top-level files (typically FAR files or those not linked from others)
     all_linked_files = set()
     for links in link_map.values():
@@ -146,13 +148,14 @@ def parse_document_structure(file_contents):
     # Build hierarchy starting from top-level files
     def build_hierarchy(filename, level=1, parent_id=None, parent_path=None):
         if filename not in file_contents:
-            logger.info(f"File not found: {filename}")
+            logger.info(f"A2 File not found: {filename}")
             return None
         
         # Get document ID and type
         doc_info = document_ids.get(filename, {})
         doc_id = doc_info.get('id')
         doc_type = doc_info.get('type', 'Unknown')
+        logger.info(f"A2 Document ID: {doc_id} for file: {filename} of type {doc_type}")
         
         if not doc_id:
             doc_id = f"unknown_{level}_{len(document_structure)}"
@@ -178,13 +181,13 @@ def parse_document_structure(file_contents):
         html_content = file_contents[filename].get('original_html', '')
         if html_content:
             links = extract_links_from_html(html_content)
-            logger.info(f"Extracted links: {links}")
+            logger.info(f"A2 Extracted links: {links}")
             for link in links:
                 link_url = link['url']
-                logger.info(f"Link URL: {link_url}")
+                logger.info(f"A2 Link URL: {link_url}")
                 link_basename = os.path.basename(link_url)
+                logger.info(f"A2 Link basename: {link_basename} in {file_contents}")
                 if link_basename in file_contents and link_basename != filename:
-                    logger.info(f"Link basename: {link_basename}")
                     # Check if this is a child document based on ID patterns
                     is_child = False
                     
@@ -198,6 +201,7 @@ def parse_document_structure(file_contents):
                     # Check ID patterns (e.g., Part 27 links to 27.xxx)
                     elif doc_id and document_ids.get(link_basename, {}).get('id', '').startswith(doc_id):
                         is_child = True
+                    logger.info(f"A2 Is child: {is_child}")
                     
                     if is_child:
                         child = build_hierarchy(link_basename, level + 1, doc_id, node['path'])

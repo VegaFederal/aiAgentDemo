@@ -278,3 +278,7 @@ Outputs:
   DocumentsBucketName:
     Description: Name of the S3 bucket for document storage
     Value: !Ref DocumentsBucket
+    
+  LambdaExecutionRoleArn:
+    Description: ARN of the Lambda execution role
+    Value: !GetAtt LambdaExecutionRole.Arn

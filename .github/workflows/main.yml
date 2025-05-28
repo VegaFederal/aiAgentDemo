@@ -129,10 +129,30 @@ jobs:
 
       - name: Update or Create Lambda functions
         run: |
-          # Get stack outputs
-          BEDROCK_STACK_ID=$(aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE --query "Stacks[?contains(StackName, '${{ env.PROJECT_NAME }}-BedrockLambdaStack')].StackName" --output text)
-          TABLE_NAME=$(aws cloudformation describe-stacks --stack-name $BEDROCK_STACK_ID --query "Stacks[0].Outputs[?OutputKey=='DocumentEmbeddingsTableName'].OutputValue" --output text)
-          LAMBDA_ROLE_ARN=$(aws cloudformation describe-stacks --stack-name $BEDROCK_STACK_ID --query "Stacks[0].Outputs[?OutputKey=='LambdaExecutionRoleArn'].OutputValue" --output text)
+          # Get stack outputs - with error handling
+          echo "Looking for DocumentProcessingStack outputs..."
+          PROCESSING_STACK_ID=$(aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE --query "StackSummaries[?contains(StackName, '${{ env.PROJECT_NAME }}-DocumentProcessingStack')].StackName" --output text || echo "")
+          
+          if [ -z "$PROCESSING_STACK_ID" ]; then
+            echo "DocumentProcessingStack not found, skipping Lambda updates"
+            exit 0
+          fi
+          
+          echo "Found stack: $PROCESSING_STACK_ID"
+          
+          # Get table name from stack outputs
+          TABLE_NAME=$(aws cloudformation describe-stacks --stack-name $PROCESSING_STACK_ID --query "Stacks[0].Outputs[?OutputKey=='DocumentEmbeddingsTableName'].OutputValue" --output text || echo "")
+          if [ -z "$TABLE_NAME" ]; then
+            echo "Could not find DocumentEmbeddingsTableName output, using default name"
+            TABLE_NAME="${PROJECT_NAME}-embeddings-dev"
+          fi
+          
+          # Get role ARN from stack outputs
+          LAMBDA_ROLE_ARN=$(aws cloudformation describe-stacks --stack-name $PROCESSING_STACK_ID --query "Stacks[0].Outputs[?OutputKey=='LambdaExecutionRoleArn'].OutputValue" --output text || echo "")
+          if [ -z "$LAMBDA_ROLE_ARN" ]; then
+            echo "Could not find LambdaExecutionRoleArn output, skipping Lambda updates"
+            exit 0
+          fi
           
           # Output env values
           echo "LAMBDA_ROLE: $LAMBDA_ROLE_ARN"
@@ -181,8 +201,7 @@ jobs:
           update_or_create_lambda "${PROJECT_NAME}-process-all-documents" "index.lambda_handler" "lambda/document-processor.zip"
           
           # Update or create LLM agent Lambda
-          update_or_create_lambda "aiad-llm-agent" "index.lambda_handler" "lambda/llm-agent.zip"
-
+          update_or_create_lambda "${PROJECT_NAME}-llm-agent" "index.lambda_handler" "lambda/llm-agent.zip"
 
       - name: Get CloudFront URL
         run: |

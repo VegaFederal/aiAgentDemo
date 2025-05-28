@@ -266,7 +266,11 @@ def chunk_text(text, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP):
                 chunks.append(chunk)
             
             # Advance start position, ensuring it moves forward
-            start = end - chunk_overlap            
+            new_start = end - chunk_overlap
+            if new_start > start:
+                start = new_start
+            else:
+                start = end - (chunk_overlap // 2)           
             logger.info(f"New start: {start}")
     
     logger.info(f"Chunked text into {len(chunks)} chunks")

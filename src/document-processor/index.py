@@ -576,6 +576,7 @@ def process_bucket(bucket):
 def lambda_handler(event, context):
     """Process all documents in a bucket or specific prefix"""
     logger.info(f"configuration info: table: {EMBEDDINGS_TABLE}, model: {EMBEDDING_MODEL_ID}")
+    logger.info(f"Environment Vars: {os.environ}")
     try:
         # Get bucket and optional prefix from event
         bucket = event.get('bucket')

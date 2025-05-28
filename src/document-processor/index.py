@@ -122,8 +122,9 @@ def parse_document_structure(file_contents):
                     link_url = link['url']
                     link_basename = os.path.basename(link_url)
                     logger.info(f"A1 Normalized link basename: {link_basename}")
-                    logger.info(f"A1 File Contents: {file_contents}")
+                    #logger.info(f"A1 File Contents: {file_contents}")
                     if html_content.find(link_basename):
+                        logger.info(f"A1 Found {link_basename} in html")
                         # Add to link map with link text for context
                         if link_basename not in link_map:
                             link_map[link_basename] = []
@@ -225,25 +226,52 @@ def parse_document_structure(file_contents):
 def chunk_text(text, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP):
     """Split text into overlapping chunks of specified size"""
     logger.info(f"Chunking text of length {len(text)}")
+    logger.info(f"Chunk size: {chunk_size}, Chunk overlap: {chunk_overlap}")
+    logger.info(f"Text: {text}")
     chunks = []
+    
+    # Ensure chunk_overlap is less than chunk_size to prevent infinite loops
+    if chunk_overlap >= chunk_size:
+        chunk_overlap = chunk_size // 2
+        logger.warning(f"Chunk overlap was too large. Adjusted to {chunk_overlap}")
+    
     if len(text) <= chunk_size:
+        logger.info(f"Text length <= chunk size. No chunking needed.")
         chunks.append(text)
     else:
+        logger.info(f"Text length > chunk size. Chunking needed.")
         start = 0
-        while start < len(text):
+        end = min(start + chunk_size, len(text))
+        while start < len(text) and end < len(text):
             end = min(start + chunk_size, len(text))
+            logger.info(f"Start: {start}, End: {end}")
+            
             # Try to find a natural break point
             if end < len(text):
+                found_break = False
                 for break_char in ['\n\n', '\n', '. ', '? ', '! ']:
                     break_pos = text.rfind(break_char, start, end)
+                    logger.info(f"Break char: {break_char}, Break pos: {break_pos}")
                     if break_pos > start:
                         end = break_pos + len(break_char)
+                        found_break = True
                         break
+                
+                # If no natural break found, just use the maximum chunk size
+                if not found_break:
+                    logger.info("No natural break found, using maximum chunk size")
             
-            chunks.append(text[start:end].strip())
-            start = end - chunk_overlap
+            chunk = text[start:end].strip()
+            if chunk:  # Only add non-empty chunks
+                chunks.append(chunk)
+            
+            # Advance start position, ensuring it moves forward
+            start = end - chunk_overlap            
+            logger.info(f"New start: {start}")
     
+    logger.info(f"Chunked text into {len(chunks)} chunks")
     return chunks
+
 
 def generate_embedding(text):
     """Generate embeddings for the given text using Amazon Titan"""
@@ -396,87 +424,88 @@ def process_files(bucket, s3_objects):
             except Exception as e:
                 print(f"Error processing file {file_name}: {str(e)}")
         
-        # Parse document structure using HTML links
-        document_structure = parse_document_structure(file_contents)
-        logger.info(f"B1 Document Structure: {document_structure}")
+    # Parse document structure using HTML links
+    document_structure = parse_document_structure(file_contents)
+    logger.info(f"B1 Document Structure: {document_structure}")
 
-        # Process files with hierarchical context
-        structured_content = []
-                
-        # Helper function to process nodes recursively
-        def process_node(node):
-            logger.info(f"B2 Processing recursive node: {node}")
-            filename = node.get('filename')
-            if filename in file_contents:
-                content = file_contents[filename]['content']
-                title = file_contents[filename].get('title', filename)
-                doc_type = node.get('type', 'Unknown')
-                doc_id = node.get('id', 'unknown')
-                
-                # Use the path from the node if available
-                current_path = node.get('path', doc_id)
-                
-                # Create hierarchical header
-                header_parts = [
-                    f"Type: {doc_type}",
-                    f"ID: {doc_id}",
-                    f"Level: {node.get('level', 0)}",
-                    f"Path: {current_path}",
-                    f"Title: {title}",
-                    f"File: {filename}"
-                ]
-                
-                if 'parent_id' in node:
-                    header_parts.insert(2, f"Parent: {node['parent_id']}")
-                    
-                header = " | ".join(header_parts)
-                structured_content.append(f"{header}\n\n{content}")
-                
-                # Process children recursively
-                for child in node.get('children', []):
-                    logger.info(f"B2 Child node: {child}")
-                    process_node(child)
+    # Process files with hierarchical context
+    structured_content = []
+            
+    # Helper function to process nodes recursively
+    def process_node(node):
+        logger.info(f"B2 Processing recursive node: {node}")
+        filename = node.get('filename')
+        if filename in file_contents:
+            content = file_contents[filename]['content']
+            title = file_contents[filename].get('title', filename)
+            doc_type = node.get('type', 'Unknown')
+            doc_id = node.get('id', 'unknown')
+            
+            # Use the path from the node if available
+            current_path = node.get('path', doc_id)
+            
+            # Create hierarchical header
+            part = {
+                'type': doc_type,
+                'doc_id': doc_id,
+                'level': node.get('level', 0),
+                'path': current_path,
+                'title': title,
+                'filename': filename,
+                'content': content
+           }
+            
+            if 'parent_id' in node:
+                part['parent'] = node['parent_id']
+            logger.info(f"B2 Part: {part}")
+            structured_content.append(part)
+            
+            # Process children recursively
+            for child in node.get('children', []):
+                logger.info(f"B2 Child node: {child}")
+                process_node(child)
 
-        # Process top-level nodes
-        for filename, node in document_structure.items():
-            logger.info(f"Top-level node: {node}")
-            process_node(node)
-        
-        # Add any remaining files that weren't part of the hierarchy
-        processed_files = set()
-        for structure in document_structure.values():
-            def collect_filenames(node):
-                if 'filename' in node:
-                    processed_files.add(node['filename'])
-                for child in node.get('children', []):
-                    collect_filenames(child)
-            collect_filenames(structure)
-        
-        for file, data in file_contents.items():
-            if file not in processed_files:
-                title = data.get('title', file)
-                doc_id = data.get('doc_id')
-                doc_type = data.get('doc_type', 'Unknown')
-                
-                header_parts = [
-                    f"Type: {doc_type}" if doc_type else "Type: Standalone",
-                    f"ID: {doc_id}" if doc_id else "ID: unknown",
-                    f"Title: {title}",
-                    f"File: {file}"
-                ]
-                
-                header = " | ".join(header_parts)
-                structured_content.append(f"{header}\n\n{data['content']}")
+    # Process top-level nodes
+    for filename, node in document_structure.items():
+        logger.info(f"B1 Top-level node: {node}")
+        process_node(node)
     
+    # Add any remaining files that weren't part of the hierarchy
+    processed_files = set()
+    for structure in document_structure.values():
+        def collect_filenames(node):
+            if 'filename' in node:
+                processed_files.add(node['filename'])
+            for child in node.get('children', []):
+                collect_filenames(child)
+        collect_filenames(structure)
+    
+    for file, data in file_contents.items():
+        if file not in processed_files:
+            title = data.get('title', file)
+            doc_id = data.get('doc_id')
+            doc_type = data.get('doc_type', 'Unknown')
+            
+            content = {
+                'type': doc_type if doc_type else "Standalone",
+                'doc_id': doc_id if doc_id else "unknown",
+                'title': title,
+                'filename': file,
+                'content': data['content']
+            }
+            logger.info(f"B2 Content: {content}")
+            structured_content.append(content)
+
     # Combine all text with separators
     return structured_content
 
 def process_chunks(chunks, document_id, metadata):
-    logger.info(f"Processing {len(chunks)} chunks for document {document_id}")
+    logger.info(f"D1 Processing {len(chunks)} chunks for document {document_id}")
     # Process each chunk
     for i, chunk in enumerate(chunks):
         # Generate embedding
         embedding = generate_embedding(chunk)
+        logger.info(f"D1 Chunk {i} embedding generated")
         
         # Store in DynamoDB
         store_embedding(document_id, i, chunk, embedding, metadata)
@@ -485,11 +514,11 @@ def process_chunks(chunks, document_id, metadata):
 def process_bucket(bucket):
     """Process all documents in a bucket or specific prefix"""
     try:
-        logger.info(f"Processing documents in bucket: {bucket}")
+        logger.info(f"C1 Processing documents in bucket: {bucket}")
 
         # List all objects in the bucket with the given prefix
         response = s3.list_objects_v2(Bucket=bucket)
-        logger.info(f"List of all objects in Bucket: {response}")
+        logger.info(f"C1 List of all objects in Bucket: {response}")
 
         if 'Contents' not in response:
             logger.info(f"No files found in bucket {bucket}")
@@ -500,26 +529,31 @@ def process_bucket(bucket):
                 })
             }
         structured_content = process_files(bucket, response['Contents'])
-        logger.info(f"Structured content: {structured_content}")
         total_chunks = 0
         processed_docs = []
 
-        logger.info(f"Processing {len(structured_content)} documents")
+        logger.info(f"C1 Processing Structured Content for {len(structured_content)} content")
         for content_item in structured_content:
+            logger.info(f"C1 Content Item: {content_item}")
             text = content_item['content']
+            logger.info(f"C1 Content: {text}")
             document_id = content_item['doc_id']
+            logger.info(f"C1 Document ID: {document_id}")
 
+            logger.info(f"C1 Processing document {document_id}")
             # Split text into chunks
             chunks = chunk_text(text)
+            logger.info(f"C1 Document {document_id} split into {len(chunks)} chunks")
             total_chunks += len(chunks)
 
             # Create metadata
             metadata = {
-                'filename': content_item['file'],
+                'filename': content_item['filename'],
                 'source_bucket': bucket,
-                'source_key': content_item.get('s3_key'),
+                'source_key': content_item['filename'],
                 **content_item.get('s3_metadata', {})
             }
+            logger.info(f"C1 Metadata: {metadata}")
             process_chunks(chunks, document_id, metadata)
             processed_docs.append(document_id)
 
@@ -532,15 +566,16 @@ def process_bucket(bucket):
             })
         }
     except Exception as e:
-        print(f"Error processing documents: {str(e)}")
+        print(f"Error processing bucket: {str(e)}")
         return {
             'statusCode': 500,
             'body': json.dumps({
-                'message': f'Error processing documents: {str(e)}'
+                'message': f'Error processing bucket: {str(e)}'
             })
         }
 def lambda_handler(event, context):
     """Process all documents in a bucket or specific prefix"""
+    logger.info(f"configuration info: table: {EMBEDDINGS_TABLE}, model: {EMBEDDING_MODEL_ID}")
     try:
         # Get bucket and optional prefix from event
         bucket = event.get('bucket')

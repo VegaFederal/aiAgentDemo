@@ -72,8 +72,8 @@ Resources:
         ProcessAllDocumentsFunctionName: !Sub "${AWS::StackName}-process-all-documents"
         DocumentsBucketName: !Sub "${DocumentsBucketName}-${Environment}"
         LambdaCodeBucket: !Ref LambdaCodeBucket
-        AIModel: "amazon.titan-embed-text-v2"
-        EmbeddingsTable: !Sub "${AWS::StackName}-embeddings-${Environment}"
+        AIModel: "amazon.titan-embed-text-v2:0"
+        EmbeddingsTable: !GetAtt BedrockLambdaStack.Outputs.DocumentEmbeddingsTableName
       Tags:
         - Key: Environment
           Value: !Ref Environment

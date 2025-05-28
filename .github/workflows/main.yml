@@ -130,13 +130,13 @@ jobs:
       - name: Update or Create Lambda functions
         run: |
           # Get stack outputs
-          BEDROCK_STACK_ID=$(aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE --query "StackSummaries[?contains(StackName, '${{ env.PROJECT_NAME }}-BedrockLambdaStack')].StackName" --output text)
+          BEDROCK_STACK_ID=$(aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE --query "Stacks[?contains(StackName, '${{ env.PROJECT_NAME }}-BedrockLambdaStack')].StackName" --output text)
+          TABLE_NAME=$(aws cloudformation describe-stacks --stack-name $BEDROCK_STACK_ID --query "Stacks[0].Outputs[?OutputKey=='DocumentEmbeddingsTableName'].OutputValue" --output text)
           LAMBDA_ROLE_ARN=$(aws cloudformation describe-stacks --stack-name $BEDROCK_STACK_ID --query "Stacks[0].Outputs[?OutputKey=='LambdaExecutionRoleArn'].OutputValue" --output text)
-          EMBEDDINGS_TABLE=$(aws cloudformation describe-stacks --stack-name $BEDROCK_STACK_ID --query "Stacks[0].Outputs[?OutputKey=='DocumentEmbeddingsTableName'].OutputValue" --output text)
           
           # Output env values
           echo "LAMBDA_ROLE: $LAMBDA_ROLE_ARN"
-          echo "EMBEDDINGS_TABLE: $EMBEDDINGS_TABLE"
+          echo "EMBEDDINGS_TABLE: $TABLE_NAME"
 
           # Function to update or create Lambda
           update_or_create_lambda() {
@@ -149,11 +149,17 @@ jobs:
             # Check if function exists
             if aws lambda get-function --function-name $FUNCTION_NAME 2>/dev/null; then
               echo "Updating existing Lambda function: $FUNCTION_NAME"
+              # Update code
               aws lambda update-function-code \
                 --function-name $FUNCTION_NAME \
                 --s3-bucket $LAMBDA_CODE_BUCKET \
                 --s3-key $S3_KEY \
                 --publish
+              
+              # Update configuration
+              aws lambda update-function-configuration \
+                --function-name $FUNCTION_NAME \
+                --environment "Variables={EMBEDDINGS_TABLE=$TABLE_NAME,EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0,CHUNK_SIZE=1000,CHUNK_OVERLAP=200}"
             else
               echo "Creating new Lambda function: $FUNCTION_NAME"
               aws lambda create-function \
@@ -162,7 +168,7 @@ jobs:
                 --handler $HANDLER \
                 --role $LAMBDA_ROLE_ARN \
                 --code S3Bucket=$LAMBDA_CODE_BUCKET,S3Key=$S3_KEY \
-                --environment "Variables={EMBEDDINGS_TABLE=$EMBEDDINGS_TABLE,EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0}" \
+                --environment "Variables={EMBEDDINGS_TABLE=$TABLE_NAME,EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0,CHUNK_SIZE=1000,CHUNK_OVERLAP=200}" \
                 --timeout 300 \
                 --memory-size 512
             fi
@@ -175,7 +181,8 @@ jobs:
           update_or_create_lambda "${PROJECT_NAME}-process-all-documents" "index.lambda_handler" "lambda/document-processor.zip"
           
           # Update or create LLM agent Lambda
-          update_or_create_lambda "aiad-llm-agent-dev" "index.lambda_handler" "lambda/llm-agent.zip"
+          update_or_create_lambda "aiad-llm-agent" "index.lambda_handler" "lambda/llm-agent.zip"
+
 
       - name: Get CloudFront URL
         run: |

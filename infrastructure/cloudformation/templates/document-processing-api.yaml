@@ -80,6 +80,7 @@ Resources:
       StageName: !Ref Environment
 
   # Lambda Function for processing all documents
+  # Lambda Function for processing all documents
   ProcessAllDocumentsFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -93,9 +94,10 @@ Resources:
       Timeout: 300
       MemorySize: 1024
       Environment:
-      Variables:
-        EMBEDDINGS_TABLE: !ImportValue 'aiAgentDemo-BedrockLambdaStack-DocumentEmbeddingsTableName'
-        EMBEDDING_MODEL_ID: !Ref AIModel
+        Variables:
+          EMBEDDINGS_TABLE: !Ref EmbeddingsTable
+          EMBEDDING_MODEL_ID: !Ref AIModel
+
 
   # Lambda Permission for API Gateway
   ProcessAllDocumentsPermission:

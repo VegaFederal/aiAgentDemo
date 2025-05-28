@@ -1,0 +1,280 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Document processing resources including Lambda functions, DynamoDB table, S3 bucket, and API Gateway'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    Description: Environment name
+    
+  ParentStackName:
+    Type: String
+    Description: Name of the parent stack for resource naming
+    
+  DocumentsBucketName:
+    Type: String
+    Description: Name of the S3 bucket that stores documents
+    
+  LambdaCodeBucket:
+    Type: String
+    Description: S3 bucket containing Lambda function code packages
+    
+  AIModel:
+    Type: String
+    Description: Bedrock AI model ID for embeddings
+    
+  EmbeddingsTableName:
+    Type: String
+    Description: DynamoDB table name for embeddings
+
+Resources:
+  # DynamoDB Table for Document Embeddings
+  DocumentEmbeddingsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref EmbeddingsTableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: document_id
+          AttributeType: S
+        - AttributeName: doc_id
+          AttributeType: S
+        - AttributeName: parent_id
+          AttributeType: S
+        - AttributeName: path
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: DocumentIdIndex
+          KeySchema:
+            - AttributeName: document_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: DocIdIndex
+          KeySchema:
+            - AttributeName: doc_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: ParentIdIndex
+          KeySchema:
+            - AttributeName: parent_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: PathIndex
+          KeySchema:
+            - AttributeName: path
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Lambda Execution Role
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: BedrockAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                  - bedrock:GetInferenceProfile
+                  - bedrock:ListInferenceProfiles
+                Resource: 
+                  - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/*"
+                  - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-*"
+                  - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.anthropic.claude-3-5-sonnet-20241022-v2:0"
+                  - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0"
+                  - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v2:0"
+                  - !Sub "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0"
+                  - !Sub "arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0"
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource: !GetAtt DocumentEmbeddingsTable.Arn
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub arn:aws:s3:::${DocumentsBucketName}
+                  - !Sub arn:aws:s3:::${DocumentsBucketName}/*
+
+  # Lambda Function for processing all documents
+  ProcessAllDocumentsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${ParentStackName}-process-all-documents"
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: lambda/document-processor.zip
+      Runtime: python3.11
+      Timeout: 300
+      MemorySize: 1024
+      Environment:
+        Variables:
+          EMBEDDINGS_TABLE: !Ref EmbeddingsTableName
+          EMBEDDING_MODEL_ID: !Ref AIModel
+          CHUNK_SIZE: 1000
+          CHUNK_OVERLAP: 200
+
+  # LLM Agent Lambda Function
+  LlmAgentFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${ParentStackName}-llm-agent"
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: python3.11
+      Timeout: 300
+      MemorySize: 1024
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: lambda/llm-agent.zip
+      Environment:
+        Variables:
+          EMBEDDINGS_TABLE: !Ref EmbeddingsTableName
+          EMBEDDING_MODEL_ID: !Ref AIModel
+
+  # S3 Bucket for Document Storage
+  DocumentsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref DocumentsBucketName
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: "s3:ObjectCreated:*"
+            Function: !GetAtt ProcessAllDocumentsFunction.Arn
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Lambda Permission for S3
+  DocumentProcessorPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ProcessAllDocumentsFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub arn:aws:s3:::${DocumentsBucketName}
+
+  # API Gateway
+  DocumentProcessingApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub ${Environment}-document-processing-api
+      Description: API for document processing
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  # API Resource
+  ProcessDocumentsResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref DocumentProcessingApi
+      ParentId: !GetAtt DocumentProcessingApi.RootResourceId
+      PathPart: process-documents
+
+  # API Method
+  ProcessDocumentsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref DocumentProcessingApi
+      ResourceId: !Ref ProcessDocumentsResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ProcessAllDocumentsFunction.Arn}/invocations
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseTemplates:
+              application/json: $input.json('$')
+        RequestTemplates:
+          application/json: $input.json('$')
+      MethodResponses:
+        - StatusCode: 200
+          ResponseModels:
+            application/json: 'Empty'
+
+  # API Deployment
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - ProcessDocumentsMethod
+    Properties:
+      RestApiId: !Ref DocumentProcessingApi
+      StageName: !Ref Environment
+
+  # Lambda Permission for API Gateway
+  ProcessAllDocumentsPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ProcessAllDocumentsFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${DocumentProcessingApi}/*
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub https://${DocumentProcessingApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/process-documents
+  
+  ProcessAllDocumentsFunctionArn:
+    Description: ARN of the process all documents Lambda function
+    Value: !GetAtt ProcessAllDocumentsFunction.Arn
+    
+  LlmAgentFunctionArn:
+    Description: ARN of the LLM agent Lambda function
+    Value: !GetAtt LlmAgentFunction.Arn
+    
+  DocumentEmbeddingsTableName:
+    Description: Name of the DynamoDB table for document embeddings
+    Value: !Ref DocumentEmbeddingsTable
+    
+  DocumentsBucketName:
+    Description: Name of the S3 bucket for document storage
+    Value: !Ref DocumentsBucket

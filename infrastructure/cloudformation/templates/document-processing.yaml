@@ -78,6 +78,8 @@ Resources:
       Tags:
         - Key: Environment
           Value: !Ref Environment
+        - Key: update
+          Value: yesplease
 
   # Lambda Execution Role
   LambdaExecutionRole:

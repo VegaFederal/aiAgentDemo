@@ -79,11 +79,12 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
         - Key: update
-          Value: yesplease
+          Value: yesplease2
 
   # Lambda Execution Role
   LambdaExecutionRole:
     Type: AWS::IAM::Role
+    DependsOn: DocumentEmbeddingsTable
     Properties:
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
@@ -143,6 +144,7 @@ Resources:
   # Lambda Function for processing all documents
   ProcessAllDocumentsFunction:
     Type: AWS::Lambda::Function
+    DependsOn: [DocumentEmbeddingsTable, LambdaExecutionRole]
     Properties:
       FunctionName: !Sub "${ParentStackName}-process-all-documents"
       Handler: index.lambda_handler
@@ -163,6 +165,7 @@ Resources:
   # LLM Agent Lambda Function
   LlmAgentFunction:
     Type: AWS::Lambda::Function
+    DependsOn: [DocumentEmbeddingsTable, LambdaExecutionRole]
     Properties:
       FunctionName: !Sub "${ParentStackName}-llm-agent"
       Handler: index.lambda_handler

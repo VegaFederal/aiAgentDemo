@@ -76,6 +76,8 @@ Resources:
       Tags:
         - Key: Environment
           Value: !Ref Environment
+        -Key: DB
+          Value: Dynamo
 
   # Lambda Execution Role
   LambdaExecutionRole:

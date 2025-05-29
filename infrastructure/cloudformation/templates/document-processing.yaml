@@ -123,7 +123,10 @@ Resources:
                   - dynamodb:GetItem
                   - dynamodb:Query
                   - dynamodb:Scan
-                Resource: !GetAtt DocumentEmbeddingsTable.Arn
+                  - dynamodb:BatchWriteItem
+                Resource: 
+                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmbeddingsTableName}"
+                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmbeddingsTableName}/index/*"
         - PolicyName: S3Access
           PolicyDocument:
             Version: '2012-10-17'

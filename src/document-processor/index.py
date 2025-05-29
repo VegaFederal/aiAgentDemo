@@ -75,7 +75,37 @@ def extract_links_from_html(html_content):
 
 
 def extract_document_id(filename, html_content):
-    """Extract document ID from filename or HTML content"""
+    """
+    Extract the document ID from the filename or HTML content.
+
+    This function attempts to extract a document ID from the filename or HTML content.
+    The document ID is expected to be in one of the following formats:
+    - FAR_XXXX.html
+    - Part_XXXX.html
+    - Subpart_XXXX.XX.html
+    - XXXX.XX-XX.html
+    - XXXX.XX.html
+    - Corrections.html
+
+    Args:
+        filename (str): The filename of the document.
+        html_content (str): The HTML content of the document.
+
+    Returns:
+        tuple: A tuple containing two elements:
+            - The document ID (str) if found, otherwise None.
+            - The document type (str) if found, otherwise None.
+
+    Example:
+        >>> extract_document_id('FAR_1234.html', '')
+        ('1234', 'FAR')
+        >>> extract_document_id('Corrections.html', '')
+        ('Corrections', 'Extra')
+        >>> extract_document_id('unknown.html', '<title>Part 27</title>')
+        ('27', 'Part')
+    """
+    # Remove file extension
+    filename = os.path.splitext(filename)[0]
     # Try to extract from filename patterns
     if re.match(r'FAR_\d+\.html?', filename):
         return re.search(r'FAR_(\d+)\.html?', filename).group(1), 'FAR'
@@ -125,7 +155,31 @@ def extract_document_id(filename, html_content):
     return None, None
 
 def parse_document_structure(file_contents):
-    """Parse document structure using HTML links to identify hierarchical relationships"""
+    """
+    Parse the document structure from the given file contents.
+
+    This function processes the file contents to identify the top-level document
+    and its hierarchy, including links to other documents.
+
+    Args:
+        file_contents (dict): A dictionary where keys are filenames and values are
+                               dictionaries containing 'original_html' and 'cleaned_html'.
+
+    Returns:
+        tuple: A tuple containing two elements:
+            - A dictionary representing the document structure, where keys are filenames
+              and values are lists of linked filenames.
+            - A dictionary containing document IDs and types.
+
+    Example:
+        >>> file_contents = {
+        ...     'FAR_1234.html': {'original_html': '<a href="Part_27.html">Link</a>', 'cleaned_html': 'Link'},
+        ...     'Part_27.html': {'original_html': '', 'cleaned_html': ''}
+        ... }
+        >>> parse_document_structure(file_contents)
+        ({'FAR_1234.html': ['Part_27.html']}, {'1234': 'FAR'})
+    """
+    logger.info("A1 Parsing document structure")
     # Dictionary to store document hierarchy
     document_structure = {}
     link_map = {}  # Maps files to the files that link to them
@@ -191,6 +245,19 @@ def parse_document_structure(file_contents):
     
     # Build hierarchy starting from top-level files
     def build_hierarchy(filename, level=1, parent_id=None, parent_path=None, path_so_far=None):
+        """
+        Recursively build the document structure by finding children of each file.
+
+        Args:
+            filename (string): name of the file
+            level (int, optional): depth level. Defaults to 1.
+            parent_id (string, optional): ID of the parent file. Defaults to None.
+            parent_path (string, optional): path pulled from the url. Defaults to None.
+            path_so_far (string, optional): relative path. Defaults to None.
+
+        Returns:
+            node: dictionary 
+        """
         if path_so_far is None:
             path_so_far = []
             
@@ -283,8 +350,21 @@ def parse_document_structure(file_contents):
 
 
 def chunk_text(text, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP):
-    """Split text into overlapping chunks with respect to semantic boundaries"""
-    logger.info(f"Chunking text of length {len(text)} with semantic awareness")
+    """
+    Chunk the given text into smaller parts.
+
+    This function splits the text into chunks based on the specified chunk size and overlap.
+    It aims to preserve semantic boundaries in the text.
+
+    Args:
+        text (str): The text to be chunked.
+        chunk_size (int, optional): The maximum size of each chunk. Defaults to CHUNK_SIZE.
+        chunk_overlap (int, optional): The number of overlapping characters between chunks. Defaults to CHUNK_OVERLAP.
+
+    Returns:
+        list: A list of text chunks.
+    """
+    logger.info(f"Chunking text of length {len(text)}")
     
     # Ensure chunk_overlap is less than chunk_size
     if chunk_overlap >= chunk_size:
@@ -478,6 +558,7 @@ def generate_embedding(text, max_retries=3, fallback_model_ids=None):
 
 def extract_hierarchy_metadata(text_chunk):
     """Extract hierarchical metadata from the chunk header"""
+
     hierarchy = {}
     
     # Look for document type
@@ -531,7 +612,32 @@ def extract_hierarchy_metadata(text_chunk):
     return hierarchy
 
 def store_embedding(document_id, chunk_id, text_chunk, embedding, metadata):
-    """Store embedding and metadata in DynamoDB with hierarchical information"""
+    """
+    Store document embedding and metadata in DynamoDB.
+    
+    This function extracts hierarchical metadata from the text chunk header,
+    merges it with the provided metadata, and stores the embedding along with
+    the content in DynamoDB. It also adds top-level attributes for efficient
+    querying by document ID, parent ID, and path.
+    
+    Args:
+        document_id (str): Unique identifier for the document
+        chunk_id (int): Identifier for this specific chunk within the document
+        text_chunk (str): Text content with hierarchical header information
+        embedding (list): Vector embedding generated from the text
+        metadata (dict): Additional metadata to store with the embedding
+        
+    Returns:
+        None
+        
+    Note:
+        The text_chunk should have a header in the format:
+        "Type: Part | ID: 27 | Level: 1 | Path: 27 | Title: Part 27 | File: Part_27.html"
+        
+        The function extracts hierarchical information from this header and
+        stores it both within the metadata and as top-level attributes for
+        efficient querying.
+    """
     # Extract hierarchy information from the chunk
     hierarchy_metadata = extract_hierarchy_metadata(text_chunk)
     logger.info(f"Extracted hierarchy metadata: {hierarchy_metadata}")
@@ -621,6 +727,38 @@ def process_node(node, file_contents, structured_content):
 
 
 def process_files(bucket, s3_objects):
+    """
+    Process files from an S3 bucket, extract content, and build document hierarchy.
+    
+    This function processes HTML and TXT files from an S3 bucket, extracts their content,
+    builds a hierarchical document structure based on links between HTML files, and
+    creates structured content with metadata headers for embedding generation.
+    
+    Args:
+        bucket (str): Name of the S3 bucket containing the files
+        s3_objects (list): List of S3 object dictionaries from list_objects_v2
+        
+    Returns:
+        list: A list of structured content items, each containing:
+            - 'content' (str): Text content with hierarchical header
+            - 'doc_id' (str): Document identifier
+            - 'file' (str): Original filename
+            - 's3_key' (str): S3 object key
+            - 's3_metadata' (dict): Metadata from the S3 object
+            
+    Note:
+        The function builds a hierarchical document structure by:
+        1. Extracting document IDs and types from filenames and HTML content
+        2. Analyzing links between HTML files to determine parent-child relationships
+        3. Building a tree structure representing the document hierarchy
+        4. Creating structured content with headers containing hierarchical metadata
+        
+        The structured content format includes a header like:
+        "Type: Part | ID: 27 | Level: 1 | Path: 27 | Title: Part 27 | File: Part_27.html"
+        
+        This header is later parsed by extract_hierarchy_metadata to maintain
+        the hierarchical relationships when storing embeddings.
+    """
     logger.info(f"Processing {len(s3_objects)} files in bucket: {bucket}")
     # Get list of all HTML/TXT files
     file_contents = {}
@@ -720,6 +858,20 @@ def process_files(bucket, s3_objects):
 
 
 def process_chunks(chunks, document_id, metadata):
+    """
+    Process chunks of text, generate embeddings, and store them in DynamoDB.
+
+    This function processes a list of text chunks, generates embeddings for each chunk,
+    and stores the embeddings along with the chunk content and metadata in DynamoDB.
+
+    Args:
+        chunks (list): List of text chunks to process
+        document_id (str): Unique identifier for the document
+        metadata (dict): Metadata to associate with each embedding
+
+    Returns:
+        None
+    """
     logger.info(f"Chunking text into {len(chunks)} chunks for document {document_id}")
     # Process each chunk
     for i, chunk in enumerate(chunks):
@@ -732,7 +884,44 @@ def process_chunks(chunks, document_id, metadata):
         
 
 def process_bucket(bucket, prefix=''):
-    """Process all documents in a bucket or specific prefix with pagination"""
+    """
+    Process all documents in an S3 bucket with pagination and hierarchical structure.
+    
+    This function retrieves all objects from an S3 bucket, processes HTML and TXT files,
+    builds a hierarchical document structure based on links between documents, creates
+    structured content with metadata headers, and generates embeddings for each chunk
+    of text.
+    
+    The function uses pagination to handle large buckets and processes the documents
+    in three main steps:
+    1. Collecting all file contents
+    2. Parsing the document structure to identify relationships
+    3. Creating structured content with hierarchical metadata
+    
+    Args:
+        bucket (str): Name of the S3 bucket containing the documents
+        prefix (str, optional): Prefix to filter objects in the bucket. Defaults to ''.
+        
+    Returns:
+        dict: A dictionary containing:
+            - 'statusCode' (int): HTTP status code (200 for success, 404 for no files, 500 for error)
+            - 'body' (str): JSON string with processing results including:
+                - 'message' (str): Status message
+                - 'documents_processed' (int): Number of documents processed
+                - 'chunks_processed' (int): Number of text chunks processed
+                
+    Note:
+        This function maintains the hierarchical relationships between documents by:
+        1. Retrieving all objects from the bucket using pagination
+        2. Processing all files to extract content and metadata
+        3. Building a complete document structure based on links
+        4. Creating structured content with hierarchical headers
+        5. Processing chunks in batches for embedding generation
+        
+        The function handles large buckets by using pagination when listing objects,
+        but processes all files together to maintain the document hierarchy.
+    """
+
     try:
         logger.info(f"Processing documents in bucket: {bucket} with prefix: {prefix}")
         
@@ -925,7 +1114,20 @@ def process_bucket(bucket, prefix=''):
         }
 
 def lambda_handler(event, context):
-    """Process all documents in a bucket or specific prefix"""
+    """
+    AWS Lambda function handler.
+
+    This function is triggered by an event and processes documents in an S3 bucket.
+
+    Args:
+        event (dict): Lambda event payload
+        context (object): Lambda context object
+
+    Returns:
+        dict: A dictionary containing:
+            - 'statusCode' (int): HTTP status code
+            - 'body' (str): JSON string with processing results
+    """
     logger.info(f"configuration info: table: {EMBEDDINGS_TABLE}, model: {EMBEDDING_MODEL_ID}")
     logger.info(f"Environment Vars: {os.environ}")
     try:

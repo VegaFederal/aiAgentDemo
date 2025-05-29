@@ -4,6 +4,7 @@ import boto3
 import logging
 import re
 import time
+import uuid
 
 # Initialize AWS clients
 s3 = boto3.client('s3')
@@ -132,12 +133,14 @@ def parse_document_structure(file_contents):
     
     # First pass: extract document IDs and build link map
     for filename, data in file_contents.items():
+        logger.info(f"A1 Processing file: {filename}")
         if filename.endswith(('.html', '.htm')):
             # Get the original HTML content before tag removal
             html_content = data.get('original_html', '')
             if html_content:
                 # Extract document ID and type
                 doc_id, doc_type = extract_document_id(filename, html_content)
+                logger.info(f"A1 Extracted document ID: {doc_id} and type: {doc_type}")
 
                 if doc_id:
                     document_ids[filename] = {
@@ -147,6 +150,7 @@ def parse_document_structure(file_contents):
                 
                 # Extract links
                 links = extract_links_from_html(html_content)
+                logger.info(f"A1 Extracted links: {links}")
 
                 for link in links:
                     # Normalize link to match filenames
@@ -172,6 +176,7 @@ def parse_document_structure(file_contents):
 
     # Combine both approaches to get all top-level files
     top_level_files = list(set(unlinked_files + far_files))
+    logger.info(f"All files: {all_files}")
     logger.info(f"Unlinked files: {unlinked_files}")
     logger.info(f"FAR files: {far_files}")
     logger.info(f"Combined top-level files: {top_level_files}")
@@ -285,7 +290,7 @@ def chunk_text(text, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP):
     if chunk_overlap >= chunk_size:
         chunk_overlap = chunk_size // 2
         logger.warning(f"Chunk overlap was too large. Adjusted to {chunk_overlap}")
-    
+    logger.info(f"Chunk size: {chunk_size}, Chunk overlap: {chunk_overlap}")
     # For very short texts, just return the text as a single chunk
     if len(text) <= chunk_size:
         return [text]
@@ -321,6 +326,7 @@ def chunk_text(text, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP):
     while start < len(text):
         # Determine the end of the current chunk
         end = min(start + chunk_size, len(text))
+        logger.debug(f"Processing chunk from {start} to {end}")
         
         # If we're not at the end of the text, look for a semantic boundary
         if end < len(text):
@@ -330,10 +336,12 @@ def chunk_text(text, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP):
             for boundary_pattern in section_boundaries:
                 # Look for the last occurrence of the boundary pattern before the end
                 matches = list(re.finditer(boundary_pattern, text[start:end]))
+                logger.debug(f"Found {len(matches)} matches for pattern {boundary_pattern}")
                 if matches:
                     # Get the last match position
                     last_match = matches[-1]
                     boundary_pos = start + last_match.start()
+                    logger.debug(f"Last match position: {boundary_pos}")
                     
                     # Only use the boundary if it's not too close to the start
                     if boundary_pos > start + (chunk_size // 4):  # At least 25% of chunk size
@@ -349,18 +357,19 @@ def chunk_text(text, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP):
         chunk = text[start:end].strip()
         if chunk:  # Only add non-empty chunks
             chunks.append(chunk)
+            logger.debug(f"Added chunk: {chunk[:50]}...")
         
         # Move the start position for the next chunk
-        start = end - chunk_overlap
+        new_start = end - chunk_overlap
         
         # Ensure we're making progress
-        if start <= end - chunk_size:
-            start = end - chunk_overlap
-            
+        if new_start <= end - chunk_size:
+            new_start = end - chunk_overlap
+        logger.info(f"Next chunk starts at {start}")
         # Safety check to prevent infinite loops
-        if start >= len(text):
+        if start >= len(text) or new_start == start:
             break
-    
+        start = new_start
     logger.info(f"Created {len(chunks)} semantically meaningful chunks")
     return chunks
 
@@ -561,18 +570,72 @@ def store_embedding(document_id, chunk_id, text_chunk, embedding, metadata):
     
     embeddings_table.put_item(Item=item)
 
+def process_node(node, file_contents, structured_content):
+    """
+    Process a document node and add it to structured_content
+    
+    Args:
+        node: The document node to process
+        file_contents: Dictionary of file contents
+        structured_content: List to append structured content to
+    """
+    logger.info(f"Processing node: {node}")
+    filename = node.get('filename')
+    if filename in file_contents:
+        content = file_contents[filename]['content']
+        title = file_contents[filename].get('title', filename)
+        doc_type = node.get('type', 'Unknown')
+        doc_id = node.get('id', 'unknown')
+        
+        # Use the path from the node if available
+        current_path = node.get('path', doc_id)
+        
+        # Create hierarchical header
+        header_parts = [
+            f"Type: {doc_type}",
+            f"ID: {doc_id}",
+            f"Level: {node.get('level', 0)}",
+            f"Path: {current_path}",
+            f"Title: {title}",
+            f"File: {filename}"
+        ]
+        
+        if 'parent_id' in node:
+            header_parts.insert(2, f"Parent: {node['parent_id']}")
+            
+        header = " | ".join(header_parts)
+        
+        # Create structured content with header and content
+        structured_content.append({
+            'content': f"{header}\n\n{content}",
+            'doc_id': doc_id,
+            'file': filename,
+            's3_key': file_contents[filename].get('s3_key'),
+            's3_metadata': file_contents[filename].get('s3_metadata', {})
+        })
+        
+        # Process children recursively
+        for child in node.get('children', []):
+            logger.info(f"Child node: {child}")
+            process_node(child, file_contents, structured_content)
+
+
 def process_files(bucket, s3_objects):
     logger.info(f"Processing {len(s3_objects)} files in bucket: {bucket}")
     # Get list of all HTML/TXT files
     file_contents = {}
     for s3_object in s3_objects:
         file_name = s3_object['Key']
-        logger.info(f"Processing file: {file_name}")
+        logger.debug(f"Processing file: {file_name}")
         if file_name.endswith(('.html', '.htm', '.txt')):
             try:
-              # Get file content from S3
+                # Get file content from S3
                 file_obj = s3.get_object(Bucket=bucket, Key=file_name)
                 content = file_obj['Body'].read().decode('utf-8', errors='ignore')
+                
+                # Get metadata from file_obj, not s3_object
+                metadata = file_obj.get('Metadata', {})
+                
                 if file_name.endswith(('.html', '.htm')):
                     # Store original HTML for link extraction
                     original_html = content
@@ -583,73 +646,42 @@ def process_files(bucket, s3_objects):
                     
                     # Extract document ID from content
                     doc_id, doc_type = extract_document_id(file_name, content)
-                    logger.info(f"B1 Document ID: {doc_id}, Document Type: {doc_type}")
+                    logger.debug(f"Document ID: {doc_id}, Document Type: {doc_type}")
                     
                     # Remove HTML tags for text content
                     text_content = re.sub(r'<[^>]+>', ' ', content)
                     # Remove extra whitespace
                     text_content = re.sub(r'\s+', ' ', text_content).strip()
-                    
+
                     file_contents[file_name] = {
                         'content': text_content,
                         'original_html': original_html,
                         'title': title,
                         'doc_id': doc_id,
                         'doc_type': doc_type,
-                        's3_metadata': s3_object.get('Metadata', {})
+                        's3_key': file_name,
+                        's3_metadata': metadata  # Use metadata from file_obj
                     }
+                    logger.debug(f"File contents: {file_contents[file_name]}")
                 else:
                     file_contents[file_name] = {
                         'content': content,
                         'title': file_name,
-                        's3_metadata':s3_object.get('Metadata',{})
+                        's3_key': file_name,
+                        's3_metadata': metadata  # Use metadata from file_obj
                     }
             except Exception as e:
-                print(f"Error processing file {file_name}: {str(e)}")
-        
+                logger.error(f"Error processing file {file_name}: {str(e)}")
+
     # Parse document structure using HTML links
     document_structure = parse_document_structure(file_contents)
 
     # Process files with hierarchical context
     structured_content = []
             
-    # Helper function to process nodes recursively
-    def process_node(node):
-        logger.info(f"B2 Processing recursive node: {node}")
-        filename = node.get('filename')
-        if filename in file_contents:
-            content = file_contents[filename]['content']
-            title = file_contents[filename].get('title', filename)
-            doc_type = node.get('type', 'Unknown')
-            doc_id = node.get('id', 'unknown')
-            
-            # Use the path from the node if available
-            current_path = node.get('path', doc_id)
-            
-            # Create hierarchical header
-            part = {
-                'type': doc_type,
-                'doc_id': doc_id,
-                'level': node.get('level', 0),
-                'path': current_path,
-                'title': title,
-                'filename': filename,
-                'content': content
-           }
-            
-            if 'parent_id' in node:
-                part['parent'] = node['parent_id']
-            logger.info(f"B2 Part: {part}")
-            structured_content.append(part)
-            
-            # Process children recursively
-            for child in node.get('children', []):
-                logger.info(f"B2 Child node: {child}")
-                process_node(child)
-
     # Process top-level nodes
     for filename, node in document_structure.items():
-        process_node(node)
+        process_node(node, file_contents, structured_content)
     
     # Add any remaining files that weren't part of the hierarchy
     processed_files = set()
@@ -667,18 +699,25 @@ def process_files(bucket, s3_objects):
             doc_id = data.get('doc_id')
             doc_type = data.get('doc_type', 'Unknown')
             
-            content = {
-                'type': doc_type if doc_type else "Standalone",
-                'doc_id': doc_id if doc_id else "unknown",
-                'title': title,
-                'filename': file,
-                'content': data['content']
-            }
-            logger.info(f"B2 Content: {content}")
-            structured_content.append(content)
+            header_parts = [
+                f"Type: {doc_type}" if doc_type else "Type: Standalone",
+                f"ID: {doc_id}" if doc_id else "ID: unknown",
+                f"Title: {title}",
+                f"File: {file}"
+            ]
+            
+            header = " | ".join(header_parts)
+            structured_content.append({
+                'content': f"{header}\n\n{data['content']}",
+                'doc_id': doc_id,
+                'file': file,
+                's3_key': data.get('s3_key'),
+                's3_metadata': data.get('s3_metadata', {})
+            })
 
-    # Combine all text with separators
+    # Return the structured content
     return structured_content
+
 
 def process_chunks(chunks, document_id, metadata):
     logger.info(f"Chunking text into {len(chunks)} chunks for document {document_id}")
@@ -686,21 +725,52 @@ def process_chunks(chunks, document_id, metadata):
     for i, chunk in enumerate(chunks):
         # Generate embedding
         embedding = generate_embedding(chunk)
-        logger.info(f"Chunk {i} embedding generated")
+        logger.info(f"Chunk {i+1} embedding generated")
         
         # Store in DynamoDB
         store_embedding(document_id, i, chunk, embedding, metadata)
         
 
-def process_bucket(bucket):
-    """Process all documents in a bucket or specific prefix"""
+def process_bucket(bucket, prefix=''):
+    """Process all documents in a bucket or specific prefix with pagination"""
     try:
-        logger.info(f"Processing documents in bucket: {bucket}")
-
-        # List all objects in the bucket with the given prefix
-        response = s3.list_objects_v2(Bucket=bucket)
-
-        if 'Contents' not in response:
+        logger.info(f"Processing documents in bucket: {bucket} with prefix: {prefix}")
+        
+        # Initialize variables for pagination
+        all_objects = []
+        continuation_token = None
+        
+        # Loop until all objects are retrieved
+        while True:
+            # Prepare parameters for list_objects_v2
+            params = {
+                'Bucket': bucket,
+                'Prefix': prefix
+            }
+            
+            # Add continuation token if we have one
+            if continuation_token:
+                params['ContinuationToken'] = continuation_token
+            
+            # List objects with pagination
+            response = s3.list_objects_v2(**params)
+            logger.info(f"Retrieved {len(response.get('Contents', []))} objects")
+            
+            # Add objects to our list
+            if 'Contents' in response:
+                all_objects.extend(response['Contents'])
+            
+            # Check if there are more objects to retrieve
+            if not response.get('IsTruncated'):
+                break
+                
+            # Get continuation token for next batch
+            continuation_token = response.get('NextContinuationToken')
+            logger.info(f"Continuing with token: {continuation_token}")
+        
+        logger.info(f"Total objects retrieved: {len(all_objects)}")
+        
+        if not all_objects:
             logger.info(f"No files found in bucket {bucket}")
             return {
                 'statusCode': 404,
@@ -708,28 +778,135 @@ def process_bucket(bucket):
                     'message': f'No files found in bucket {bucket}'
                 })
             }
-        structured_content = process_files(bucket, response['Contents'])
+        
+        # Step 1: First collect all file contents to build the complete structure
+        logger.info("Step 1: Collecting all file contents")
+        file_contents = {}
+        
+        for s3_object in all_objects:
+            file_name = s3_object['Key']
+            if file_name.endswith(('.html', '.htm', '.txt')):
+                try:
+                    # Get file content from S3
+                    file_obj = s3.get_object(Bucket=bucket, Key=file_name)
+                    content = file_obj['Body'].read().decode('utf-8', errors='ignore')
+                    
+                    # Get metadata from file_obj
+                    metadata = file_obj.get('Metadata', {})
+                    
+                    if file_name.endswith(('.html', '.htm')):
+                        # Store original HTML for link extraction
+                        original_html = content
+                        
+                        # Extract title for metadata
+                        title_match = re.search(r'<title>(.*?)</title>', content, re.IGNORECASE)
+                        title = title_match.group(1) if title_match else file_name
+                        
+                        # Extract document ID from content
+                        doc_id, doc_type = extract_document_id(file_name, content)
+                        
+                        # Remove HTML tags for text content
+                        text_content = re.sub(r'<[^>]+>', ' ', content)
+                        # Remove extra whitespace
+                        text_content = re.sub(r'\s+', ' ', text_content).strip()
+
+                        file_contents[file_name] = {
+                            'content': text_content,
+                            'original_html': original_html,
+                            'title': title,
+                            'doc_id': doc_id,
+                            'doc_type': doc_type,
+                            's3_key': file_name,
+                            's3_metadata': metadata
+                        }
+                    else:
+                        file_contents[file_name] = {
+                            'content': content,
+                            'title': file_name,
+                            's3_key': file_name,
+                            's3_metadata': metadata
+                        }
+                except Exception as e:
+                    logger.error(f"Error processing file {file_name}: {str(e)}")
+        
+        # Step 2: Parse the complete document structure
+        logger.info("Step 2: Parsing document structure")
+        document_structure = parse_document_structure(file_contents)
+        
+        # Step 3: Process the structure to create structured content
+        logger.info("Step 3: Creating structured content")
+        structured_content = []
+        
+        # Process top-level nodes
+        for filename, node in document_structure.items():
+            process_node(node, file_contents, structured_content)
+
+        
+        # Add any remaining files that weren't part of the hierarchy
+        processed_files = set()
+        for structure in document_structure.values():
+            def collect_filenames(node):
+                if 'filename' in node:
+                    processed_files.add(node['filename'])
+                for child in node.get('children', []):
+                    collect_filenames(child)
+            collect_filenames(structure)
+        
+        for file, data in file_contents.items():
+            if file not in processed_files:
+                title = data.get('title', file)
+                doc_id = data.get('doc_id')
+                doc_type = data.get('doc_type', 'Unknown')
+                
+                header_parts = [
+                    f"Type: {doc_type}" if doc_type else "Type: Standalone",
+                    f"ID: {doc_id}" if doc_id else "ID: unknown",
+                    f"Title: {title}",
+                    f"File: {file}"
+                ]
+                
+                header = " | ".join(header_parts)
+                structured_content.append({
+                    'content': f"{header}\n\n{data['content']}",
+                    'doc_id': doc_id or str(uuid.uuid4()),
+                    'file': file,
+                    's3_key': data.get('s3_key'),
+                    's3_metadata': data.get('s3_metadata', {})
+                })
+        
+        # Step 4: Process structured content in batches for embedding generation
+        logger.info(f"Step 4: Processing {len(structured_content)} content items in batches")
+        batch_size = 50  # Process 50 content items at a time
         total_chunks = 0
         processed_docs = []
-
-        for content_item in structured_content:
-            text = content_item['content']
-            document_id = content_item['doc_id']
-
-            # Split text into chunks
-            chunks = chunk_text(text)
-            total_chunks += len(chunks)
-
-            # Create metadata
-            metadata = {
-                'filename': content_item['filename'],
-                'source_bucket': bucket,
-                'source_key': content_item['filename'],
-                **content_item.get('s3_metadata', {})
-            }
-            process_chunks(chunks, document_id, metadata)
-            processed_docs.append(document_id)
-
+        
+        for i in range(0, len(structured_content), batch_size):
+            batch = structured_content[i:i + batch_size]
+            logger.info(f"Processing batch {i//batch_size + 1} with {len(batch)} content items")
+            
+            # Process each content item in this batch
+            for content_item in batch:
+                text = content_item['content']
+                document_id = content_item.get('doc_id') or str(uuid.uuid4())
+                
+                # Split text into chunks
+                chunks = chunk_text(text)
+                total_chunks += len(chunks)
+                
+                # Create metadata
+                metadata = {
+                    'filename': content_item['file'],
+                    'source_bucket': bucket,
+                    'source_key': content_item.get('s3_key'),
+                    **(content_item.get('s3_metadata', {}))
+                }
+                
+                # Process chunks
+                process_chunks(chunks, document_id, metadata)
+                processed_docs.append(document_id)
+            
+            logger.info(f"Processed {len(processed_docs)} documents so far")
+        
         return {
             'statusCode': 200,
             'body': json.dumps({
@@ -739,13 +916,14 @@ def process_bucket(bucket):
             })
         }
     except Exception as e:
-        print(f"Error processing bucket: {str(e)}")
+        logger.error(f"Error processing documents: {str(e)}")
         return {
             'statusCode': 500,
             'body': json.dumps({
-                'message': f'Error processing bucket: {str(e)}'
+                'message': f'Error processing documents: {str(e)}'
             })
         }
+
 def lambda_handler(event, context):
     """Process all documents in a bucket or specific prefix"""
     logger.info(f"configuration info: table: {EMBEDDINGS_TABLE}, model: {EMBEDDING_MODEL_ID}")

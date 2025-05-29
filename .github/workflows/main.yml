@@ -190,7 +190,9 @@ jobs:
               while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
                 if aws lambda update-function-configuration \
                   --function-name $FUNCTION_NAME \
-                  --environment "Variables={EMBEDDINGS_TABLE=$TABLE_NAME,EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0,CHUNK_SIZE=1000,CHUNK_OVERLAP=200}" 2>/dev/null; then
+                  --timeout 900 \
+                  --memory-size 1024 \
+                  --environment "Variables={EMBEDDINGS_TABLE=$TABLE_NAME,EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0,CHUNK_SIZE=1000,CHUNK_OVERLAP=200,LOG_LEVEL=INFO}" 2>/dev/null; then
                   echo "Successfully updated function configuration"
                   break
                 else
@@ -211,16 +213,17 @@ jobs:
                 --handler $HANDLER \
                 --role $LAMBDA_ROLE_ARN \
                 --code S3Bucket=$LAMBDA_CODE_BUCKET,S3Key=$S3_KEY \
-                --environment "Variables={EMBEDDINGS_TABLE=$TABLE_NAME,EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0,CHUNK_SIZE=1000,CHUNK_OVERLAP=200}" \
-                --timeout 300 \
-                --memory-size 512
+                --timeout 900 \
+                --memory-size 1024 \
+                --environment "Variables={EMBEDDINGS_TABLE=$TABLE_NAME,EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0,CHUNK_SIZE=1000,CHUNK_OVERLAP=200,LOG_LEVEL=INFO}" \
+                --timeout 900 \
+                --memory-size 1024
             fi
             
             # Wait for all updates to complete
             echo "Waiting for all function updates to complete..."
             aws lambda wait function-updated --function-name $FUNCTION_NAME || true
           }
-
           
           # Update or create document processor Lambda
           update_or_create_lambda "${PROJECT_NAME}-process-all-documents" "index.lambda_handler" "lambda/document-processor.zip"

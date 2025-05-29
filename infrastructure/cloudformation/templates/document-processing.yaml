@@ -140,6 +140,14 @@ Resources:
                 Resource:
                   - !Sub arn:aws:s3:::${DocumentsBucketName}
                   - !Sub arn:aws:s3:::${DocumentsBucketName}/*
+        - PolicyName: LambdaInvokeAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ParentStackName}-process-all-documents"
 
   # Lambda Function for processing all documents
   ProcessAllDocumentsFunction:
@@ -154,7 +162,6 @@ Resources:
         S3Bucket: !Ref LambdaCodeBucket
         S3Key: lambda/document-processor.zip
       Runtime: python3.11
-      Timeout: 300
       MemorySize: 1024
       Environment:
         Variables:

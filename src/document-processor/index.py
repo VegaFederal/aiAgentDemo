@@ -725,6 +725,12 @@ def process_node(node, file_contents, structured_content):
             logger.info(f"Child node: {child}")
             process_node(child, file_contents, structured_content)
 
+def collect_filenames(node, processed_files):
+    """Collect all filenames in a document structure"""
+    if 'filename' in node:
+        processed_files.add(node['filename'])
+    for child in node.get('children', []):
+        collect_filenames(child, processed_files)
 
 def process_files(bucket, s3_objects):
     """
@@ -824,12 +830,7 @@ def process_files(bucket, s3_objects):
     # Add any remaining files that weren't part of the hierarchy
     processed_files = set()
     for structure in document_structure.values():
-        def collect_filenames(node):
-            if 'filename' in node:
-                processed_files.add(node['filename'])
-            for child in node.get('children', []):
-                collect_filenames(child)
-        collect_filenames(structure)
+        collect_filenames(structure, processed_files)
     
     for file, data in file_contents.items():
         if file not in processed_files:
@@ -883,165 +884,141 @@ def process_chunks(chunks, document_id, metadata):
         store_embedding(document_id, i, chunk, embedding, metadata)
         
 
-def process_bucket(bucket, prefix=''):
-    """
-    Process all documents in an S3 bucket with pagination and hierarchical structure.
+def process_bucket(bucket, prefix, checkpoint, time_limit_ms):
+    """Process documents with time limit and checkpointing"""
+    start_time = int(time.time() * 1000)
+    result = {
+        'is_complete': False,
+        'checkpoint': checkpoint
+    }
     
-    This function retrieves all objects from an S3 bucket, processes HTML and TXT files,
-    builds a hierarchical document structure based on links between documents, creates
-    structured content with metadata headers, and generates embeddings for each chunk
-    of text.
-    
-    The function uses pagination to handle large buckets and processes the documents
-    in three main steps:
-    1. Collecting all file contents
-    2. Parsing the document structure to identify relationships
-    3. Creating structured content with hierarchical metadata
-    
-    Args:
-        bucket (str): Name of the S3 bucket containing the documents
-        prefix (str, optional): Prefix to filter objects in the bucket. Defaults to ''.
+    # Stage 1: Collect all files
+    if checkpoint['stage'] == 'collecting_files':
+        logger.info("Stage 1: Collecting files")
         
-    Returns:
-        dict: A dictionary containing:
-            - 'statusCode' (int): HTTP status code (200 for success, 404 for no files, 500 for error)
-            - 'body' (str): JSON string with processing results including:
-                - 'message' (str): Status message
-                - 'documents_processed' (int): Number of documents processed
-                - 'chunks_processed' (int): Number of text chunks processed
-                
-    Note:
-        This function maintains the hierarchical relationships between documents by:
-        1. Retrieving all objects from the bucket using pagination
-        2. Processing all files to extract content and metadata
-        3. Building a complete document structure based on links
-        4. Creating structured content with hierarchical headers
-        5. Processing chunks in batches for embedding generation
-        
-        The function handles large buckets by using pagination when listing objects,
-        but processes all files together to maintain the document hierarchy.
-    """
-
-    try:
-        logger.info(f"Processing documents in bucket: {bucket} with prefix: {prefix}")
-        
-        # Initialize variables for pagination
+        # List all objects in the bucket
         all_objects = []
         continuation_token = None
         
-        # Loop until all objects are retrieved
         while True:
-            # Prepare parameters for list_objects_v2
-            params = {
-                'Bucket': bucket,
-                'Prefix': prefix
-            }
+            # Check time limit
+            current_time = int(time.time() * 1000)
+            if current_time - start_time > time_limit_ms:
+                logger.info(f"Time limit reached during file collection. Checkpointing.")
+                checkpoint['file_list'] = all_objects
+                return result
             
-            # Add continuation token if we have one
+            # List objects
+            params = {'Bucket': bucket, 'Prefix': prefix}
             if continuation_token:
                 params['ContinuationToken'] = continuation_token
-            
-            # List objects with pagination
+                
             response = s3.list_objects_v2(**params)
-            logger.info(f"Retrieved {len(response.get('Contents', []))} objects")
             
-            # Add objects to our list
             if 'Contents' in response:
                 all_objects.extend(response['Contents'])
-            
-            # Check if there are more objects to retrieve
+                
             if not response.get('IsTruncated'):
                 break
                 
-            # Get continuation token for next batch
             continuation_token = response.get('NextContinuationToken')
-            logger.info(f"Continuing with token: {continuation_token}")
         
-        logger.info(f"Total objects retrieved: {len(all_objects)}")
+        logger.info(f"Found {len(all_objects)} objects")
+        checkpoint['file_list'] = all_objects
+        checkpoint['stage'] = 'collecting_contents'
+    
+    # Stage 2: Collect file contents
+    if checkpoint['stage'] == 'collecting_contents':
+        logger.info("Stage 2: Collecting file contents")
         
-        if not all_objects:
-            logger.info(f"No files found in bucket {bucket}")
-            return {
-                'statusCode': 404,
-                'body': json.dumps({
-                    'message': f'No files found in bucket {bucket}'
-                })
-            }
-        
-        # Step 1: First collect all file contents to build the complete structure
-        logger.info("Step 1: Collecting all file contents")
-        file_contents = {}
-        
-        for s3_object in all_objects:
+        # Process files that haven't been processed yet
+        for s3_object in checkpoint['file_list']:
+            # Check time limit
+            current_time = int(time.time() * 1000)
+            if current_time - start_time > time_limit_ms:
+                logger.info(f"Time limit reached during content collection. Checkpointing.")
+                return result
+            
             file_name = s3_object['Key']
-            if file_name.endswith(('.html', '.htm', '.txt')):
-                try:
-                    # Get file content from S3
-                    file_obj = s3.get_object(Bucket=bucket, Key=file_name)
-                    content = file_obj['Body'].read().decode('utf-8', errors='ignore')
+            
+            # Skip if already processed or not HTML/TXT
+            if (file_name in checkpoint['file_contents'] or 
+                not file_name.endswith(('.html', '.htm', '.txt'))):
+                continue
+                
+            try:
+                # Get file content
+                file_obj = s3.get_object(Bucket=bucket, Key=file_name)
+                content = file_obj['Body'].read().decode('utf-8', errors='ignore')
+                
+                if file_name.endswith(('.html', '.htm')):
+                    # Process HTML file
+                    original_html = content
+                    title_match = re.search(r'<title>(.*?)</title>', content, re.IGNORECASE)
+                    title = title_match.group(1) if title_match else file_name
+                    doc_id, doc_type = extract_document_id(file_name, original_html)
+                    text_content = re.sub(r'<[^>]+>', ' ', content)
+                    text_content = re.sub(r'\s+', ' ', text_content).strip()
                     
-                    # Get metadata from file_obj
-                    metadata = file_obj.get('Metadata', {})
+                    checkpoint['file_contents'][file_name] = {
+                        'content': text_content,
+                        'original_html': original_html,
+                        'title': title,
+                        'doc_id': doc_id,
+                        'doc_type': doc_type,
+                        's3_key': file_name
+                    }
+                else:
+                    # Process TXT file
+                    checkpoint['file_contents'][file_name] = {
+                        'content': content,
+                        'title': file_name,
+                        's3_key': file_name
+                    }
                     
-                    if file_name.endswith(('.html', '.htm')):
-                        # Store original HTML for link extraction
-                        original_html = content
-                        
-                        # Extract title for metadata
-                        title_match = re.search(r'<title>(.*?)</title>', content, re.IGNORECASE)
-                        title = title_match.group(1) if title_match else file_name
-                        
-                        # Extract document ID from content
-                        doc_id, doc_type = extract_document_id(file_name, content)
-                        
-                        # Remove HTML tags for text content
-                        text_content = re.sub(r'<[^>]+>', ' ', content)
-                        # Remove extra whitespace
-                        text_content = re.sub(r'\s+', ' ', text_content).strip()
-
-                        file_contents[file_name] = {
-                            'content': text_content,
-                            'original_html': original_html,
-                            'title': title,
-                            'doc_id': doc_id,
-                            'doc_type': doc_type,
-                            's3_key': file_name,
-                            's3_metadata': metadata
-                        }
-                    else:
-                        file_contents[file_name] = {
-                            'content': content,
-                            'title': file_name,
-                            's3_key': file_name,
-                            's3_metadata': metadata
-                        }
-                except Exception as e:
-                    logger.error(f"Error processing file {file_name}: {str(e)}")
+            except Exception as e:
+                logger.error(f"Error processing file {file_name}: {str(e)}")
         
-        # Step 2: Parse the complete document structure
-        logger.info("Step 2: Parsing document structure")
-        document_structure = parse_document_structure(file_contents)
+        logger.info(f"Collected contents for {len(checkpoint['file_contents'])} files")
+        checkpoint['stage'] = 'building_structure'
+    
+    # Stage 3: Build document structure
+    if checkpoint['stage'] == 'building_structure':
+        logger.info("Stage 3: Building document structure")
         
-        # Step 3: Process the structure to create structured content
-        logger.info("Step 3: Creating structured content")
+        # Check time limit
+        current_time = int(time.time() * 1000)
+        if current_time - start_time > time_limit_ms:
+            logger.info(f"Time limit reached before building structure. Checkpointing.")
+            return result
+            
+        # Build document structure
+        checkpoint['document_structure'] = parse_document_structure(checkpoint['file_contents'])
+        checkpoint['stage'] = 'creating_structured_content'
+    
+    # Stage 4: Create structured content
+    if checkpoint['stage'] == 'creating_structured_content':
+        logger.info("Stage 4: Creating structured content")
+        
+        # Check time limit
+        current_time = int(time.time() * 1000)
+        if current_time - start_time > time_limit_ms:
+            logger.info(f"Time limit reached before creating structured content. Checkpointing.")
+            return result
+            
+        # Create structured content
         structured_content = []
         
         # Process top-level nodes
-        for filename, node in document_structure.items():
-            process_node(node, file_contents, structured_content)
-
+        for filename, node in checkpoint['document_structure'].items():
+            process_node(node, checkpoint['file_contents'], structured_content)
         
-        # Add any remaining files that weren't part of the hierarchy
+        # Add any remaining files
         processed_files = set()
-        for structure in document_structure.values():
-            def collect_filenames(node):
-                if 'filename' in node:
-                    processed_files.add(node['filename'])
-                for child in node.get('children', []):
-                    collect_filenames(child)
-            collect_filenames(structure)
+        for structure in checkpoint['document_structure'].values():
+            collect_filenames(structure, processed_files)
         
-        for file, data in file_contents.items():
+        for file, data in checkpoint['file_contents'].items():
             if file not in processed_files:
                 title = data.get('title', file)
                 doc_id = data.get('doc_id')
@@ -1059,81 +1036,69 @@ def process_bucket(bucket, prefix=''):
                     'content': f"{header}\n\n{data['content']}",
                     'doc_id': doc_id or str(uuid.uuid4()),
                     'file': file,
-                    's3_key': data.get('s3_key'),
-                    's3_metadata': data.get('s3_metadata', {})
+                    's3_key': data.get('s3_key')
                 })
         
-        # Step 4: Process structured content in batches for embedding generation
-        logger.info(f"Step 4: Processing {len(structured_content)} content items in batches")
-        batch_size = 50  # Process 50 content items at a time
-        total_chunks = 0
-        processed_docs = []
+        checkpoint['structured_content'] = structured_content
+        checkpoint['stage'] = 'processing_structure'
+    
+    # Stage 5: Process structured content
+    if checkpoint['stage'] == 'processing_structure':
+        logger.info("Stage 5: Processing structured content")
         
-        for i in range(0, len(structured_content), batch_size):
-            batch = structured_content[i:i + batch_size]
-            logger.info(f"Processing batch {i//batch_size + 1} with {len(batch)} content items")
-            
-            # Process each content item in this batch
-            for content_item in batch:
+        # Process items that haven't been processed yet
+        for i, content_item in enumerate(checkpoint['structured_content']):
+            # Skip if already processed
+            if content_item.get('file') in checkpoint['processed_files']:
+                continue
+                
+            # Check time limit
+            current_time = int(time.time() * 1000)
+            if current_time - start_time > time_limit_ms:
+                logger.info(f"Time limit reached during structure processing. Checkpointing.")
+                return result
+                
+            try:
+                # Process this content item
                 text = content_item['content']
                 document_id = content_item.get('doc_id') or str(uuid.uuid4())
                 
                 # Split text into chunks
                 chunks = chunk_text(text)
-                total_chunks += len(chunks)
                 
                 # Create metadata
                 metadata = {
                     'filename': content_item['file'],
                     'source_bucket': bucket,
-                    'source_key': content_item.get('s3_key'),
-                    **(content_item.get('s3_metadata', {}))
+                    'source_key': content_item.get('s3_key')
                 }
                 
                 # Process chunks
                 process_chunks(chunks, document_id, metadata)
-                processed_docs.append(document_id)
-            
-            logger.info(f"Processed {len(processed_docs)} documents so far")
+                
+                # Update checkpoint
+                checkpoint['processed_files'].append(content_item['file'])
+                checkpoint['processed_count'] += 1
+                checkpoint['chunk_count'] += len(chunks)
+                
+            except Exception as e:
+                logger.error(f"Error processing content item {i}: {str(e)}")
         
-        return {
-            'statusCode': 200,
-            'body': json.dumps({
-                'message': f'Successfully processed bucket {bucket}',
-                'documents_processed': len(processed_docs),
-                'chunks_processed': total_chunks
-            })
-        }
-    except Exception as e:
-        logger.error(f"Error processing documents: {str(e)}")
-        return {
-            'statusCode': 500,
-            'body': json.dumps({
-                'message': f'Error processing documents: {str(e)}'
-            })
-        }
+        # Check if all items have been processed
+        if len(checkpoint['processed_files']) == len(checkpoint['structured_content']):
+            logger.info("All items processed. Processing complete.")
+            result['is_complete'] = True
+    
+    return result
 
 def lambda_handler(event, context):
-    """
-    AWS Lambda function handler.
-
-    This function is triggered by an event and processes documents in an S3 bucket.
-
-    Args:
-        event (dict): Lambda event payload
-        context (object): Lambda context object
-
-    Returns:
-        dict: A dictionary containing:
-            - 'statusCode' (int): HTTP status code
-            - 'body' (str): JSON string with processing results
-    """
-    logger.info(f"configuration info: table: {EMBEDDINGS_TABLE}, model: {EMBEDDING_MODEL_ID}")
-    logger.info(f"Environment Vars: {os.environ}")
+    """Process all documents in a bucket or specific prefix with checkpointing"""
     try:
-        # Get bucket and optional prefix from event
+        # Get parameters from event
         bucket = event.get('bucket')
         prefix = event.get('prefix', '')
+        checkpoint_key = event.get('checkpoint_key')
+        
         logger.info(f"Processing documents in bucket: {bucket} with prefix: {prefix}")
         
         if not bucket:
@@ -1143,7 +1108,57 @@ def lambda_handler(event, context):
                     'message': 'Bucket name is required'
                 })
             }
-        return process_bucket(bucket)        
+        
+        # Calculate remaining time
+        remaining_time = context.get_remaining_time_in_millis() if context else 840000  # Default to 14 minutes
+        logger.info(f"Remaining time: {remaining_time} ms")
+        
+        # Reserve 30 seconds for cleanup and checkpointing
+        processing_time_limit = remaining_time - 30000
+        
+        # Initialize or load checkpoint
+        checkpoint = load_checkpoint(bucket, checkpoint_key)
+        
+        # Process with time limit
+        result = process_bucket(bucket, prefix, checkpoint, processing_time_limit)
+        
+        # Save checkpoint if not complete
+        if not result['is_complete']:
+            checkpoint_key = save_checkpoint(bucket, result['checkpoint'])
+            
+            # Create a new event for the next invocation
+            next_event = {
+                'bucket': bucket,
+                'prefix': prefix,
+                'checkpoint_key': checkpoint_key
+            }
+            
+            # Invoke Lambda function asynchronously to continue processing
+            lambda_client = boto3.client('lambda')
+            lambda_client.invoke(
+                FunctionName=context.function_name,
+                InvocationType='Event',  # Asynchronous invocation
+                Payload=json.dumps(next_event)
+            )
+            
+            return {
+                'statusCode': 202,
+                'body': json.dumps({
+                    'message': 'Processing continued in new invocation',
+                    'documents_processed_so_far': result['checkpoint']['processed_count'],
+                    'chunks_processed_so_far': result['checkpoint']['chunk_count']
+                })
+            }
+        else:
+            return {
+                'statusCode': 200,
+                'body': json.dumps({
+                    'message': 'Processing complete',
+                    'documents_processed': result['checkpoint']['processed_count'],
+                    'chunks_processed': result['checkpoint']['chunk_count']
+                })
+            }
+            
     except Exception as e:
         logger.error(f"Error processing documents: {str(e)}")
         return {
@@ -1152,3 +1167,55 @@ def lambda_handler(event, context):
                 'message': f'Error processing documents: {str(e)}'
             })
         }
+
+def load_checkpoint(bucket, checkpoint_key):
+    """Load checkpoint from S3 or initialize a new one"""
+    if checkpoint_key:
+        try:
+            response = s3.get_object(Bucket=bucket, Key=checkpoint_key)
+            checkpoint = json.loads(response['Body'].read().decode('utf-8'))
+            logger.info(f"Loaded checkpoint: {checkpoint}")
+            return checkpoint
+        except Exception as e:
+            logger.error(f"Error loading checkpoint: {str(e)}")
+    
+    # Initialize new checkpoint
+    return {
+        'file_list': [],
+        'file_contents': {},
+        'document_structure': {},
+        'structured_content': [],
+        'processed_files': [],
+        'processed_count': 0,
+        'chunk_count': 0,
+        'stage': 'collecting_files'
+    }
+
+def save_checkpoint(bucket, checkpoint):
+    """Save checkpoint to S3"""
+    checkpoint_key = f"checkpoints/document_processor_{int(time.time())}.json"
+    
+    # Create a lightweight checkpoint by removing large content
+    lightweight_checkpoint = {
+        'file_list': checkpoint['file_list'],
+        'processed_files': checkpoint['processed_files'],
+        'processed_count': checkpoint['processed_count'],
+        'chunk_count': checkpoint['chunk_count'],
+        'stage': checkpoint['stage']
+    }
+    
+    # If we're in the processing stage, include document structure
+    if checkpoint['stage'] == 'processing_structure':
+        lightweight_checkpoint['document_structure'] = checkpoint['document_structure']
+        lightweight_checkpoint['structured_content'] = checkpoint['structured_content']
+    
+    # Save to S3
+    s3.put_object(
+        Bucket=bucket,
+        Key=checkpoint_key,
+        Body=json.dumps(lightweight_checkpoint),
+        ContentType='application/json'
+    )
+    
+    logger.info(f"Saved checkpoint to {checkpoint_key}")
+    return checkpoint_key

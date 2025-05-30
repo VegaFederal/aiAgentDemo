@@ -75,11 +75,25 @@ Resources:
               KeyType: HASH
           Projection:
             ProjectionType: ALL
+      VectorSearchConfigurations:
+        - Name: EmbeddingVectorSearch
+          CollectionName: EmbeddingCollection
+          VectorFields:
+            - Name: embedding_vector
+              Dimension: 1536
+              Type: FLOAT
+              Attributes:
+                - Name: id
+                  Type: STRING
+                - Name: document_id
+                  Type: STRING
+                - Name: content
+                  Type: STRING
       Tags:
         - Key: Environment
           Value: !Ref Environment
         - Key: update
-          Value: yesplease2
+          Value: yesplease3
 
   # Lambda Execution Role
   LambdaExecutionRole:

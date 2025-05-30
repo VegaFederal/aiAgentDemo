@@ -504,7 +504,10 @@ def generate_embedding(text, max_retries=3, fallback_model_ids=None):
             # Validate the response
             if 'embedding' in response_body and response_body['embedding']:
                 logger.debug(f"Successfully generated embedding with {EMBEDDING_MODEL_ID}")
-                return response_body['embedding']
+                embedding = response_body['embedding']
+                
+                # Store the embedding in the vector-compatible format for DynamoDB vector search
+                return embedding
             else:
                 logger.warning(f"Invalid response from {EMBEDDING_MODEL_ID}: {response_body}")
                 retry_count += 1
@@ -669,7 +672,8 @@ def store_embedding(document_id, chunk_id, text_chunk, embedding, metadata):
         'chunk_id': chunk_id,
         'content': content,  # Store content without header
         'full_chunk': text_chunk,  # Store full chunk with header
-        'embedding_json': json.dumps(embedding),  # Store as JSON string
+        'embedding_json': json.dumps(embedding),  # Store as JSON string for backward compatibility
+        'embedding_vector': embedding,  # Store as native list for vector search
         'metadata': enhanced_metadata
     }
     logger.info(f"Storing item: {item}")

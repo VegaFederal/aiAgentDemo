@@ -34,8 +34,9 @@ def generate_embedding(text):
         })
     )
     response_body = json.loads(response['body'].read())
-    logger.info(f"Generated embedding of dimension {len(response_body['embedding'])}")
-    return response_body['embedding']
+    embedding = response_body['embedding']
+    logger.info(f"Generated embedding of dimension {len(embedding)}")
+    return embedding
 
 def cosine_similarity(vec_a, vec_b):
     """Calculate cosine similarity between two vectors"""
@@ -49,18 +50,18 @@ def retrieve_relevant_context(query_embedding):
     logger.info("Retrieving relevant context using vector search")
     
     try:
-        # Use DynamoDB's vector search capability if available
+        # Use DynamoDB's vector search capability
         response = dynamodb.meta.client.query(
             TableName=EMBEDDINGS_TABLE,
-            IndexName='VectorIndex',  # Assuming you have a vector index set up
-            KeyConditionExpression='vector_search = :v',
-            ExpressionAttributeValues={
-                ':v': {'S': 'true'}
+            IndexName='EmbeddingVectorSearch',
+            Select='ALL_ATTRIBUTES',
+            VectorSearchConfiguration={
+                'CollectionName': 'EmbeddingCollection'
             },
             VectorSearchExpression={
                 'VectorField': 'embedding_vector',
                 'QueryVector': query_embedding,
-                'Distance': 'cosine',
+                'Distance': 'COSINE',
                 'K': MAX_CONTEXT_DOCS * 2  # Retrieve a few more than needed to filter by threshold
             }
         )
@@ -69,9 +70,11 @@ def retrieve_relevant_context(query_embedding):
         similarities = []
         for item in response.get('Items', []):
             # Extract the document content and similarity score
-            document_id = item.get('document_id', {}).get('S', '')
-            content = item.get('content', {}).get('S', '')
-            similarity = 1.0 - float(item.get('_distance', {}).get('N', '0'))
+            document_id = item.get('document_id', '')
+            content = item.get('content', '')
+            # Vector search returns distance, convert to similarity (1 - distance for cosine)
+            distance = float(item.get('_distance', 0))
+            similarity = 1.0 - distance
             
             if similarity >= SIMILARITY_THRESHOLD:
                 similarities.append({
@@ -83,7 +86,7 @@ def retrieve_relevant_context(query_embedding):
         # Sort by similarity (highest first) and take top N
         similarities.sort(key=lambda x: x['similarity'], reverse=True)
         selected_docs = similarities[:MAX_CONTEXT_DOCS]
-        logger.info(f"Selected {len(selected_docs)} relevant documents with similarities: {[round(doc['similarity'], 3) for doc in selected_docs]}")
+        logger.info(f"Vector search selected {len(selected_docs)} relevant documents with similarities: {[round(doc['similarity'], 3) for doc in selected_docs]}")
         return selected_docs
         
     except Exception as e:
@@ -99,11 +102,15 @@ def retrieve_relevant_context_fallback(query_embedding):
     last_evaluated_key = None
     batch_size = 100  # Process in smaller batches
     
+    # Use projection expression to only retrieve necessary fields
+    projection_expression = "id, document_id, content, embedding_json"
+    
     while True:
         # Prepare scan parameters for this batch
         scan_params = {
             'TableName': EMBEDDINGS_TABLE,
-            'Limit': batch_size
+            'Limit': batch_size,
+            'ProjectionExpression': projection_expression
         }
         
         if last_evaluated_key:

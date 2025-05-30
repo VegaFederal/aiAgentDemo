@@ -1,3 +1,4 @@
+import datetime
 import json
 import os
 import boto3
@@ -106,20 +107,28 @@ def extract_document_id(filename, html_content):
     """
     # Remove file extension
     filename = os.path.splitext(filename)[0]
+    logger.debug('Extracting document ID from filename: %s', filename)
     # Try to extract from filename patterns
-    if re.match(r'FAR_\d+\.html?', filename):
-        return re.search(r'FAR_(\d+)\.html?', filename).group(1), 'FAR'
-    elif re.match(r'Part_\d+\.html?', filename):
-        return re.search(r'Part_(\d+)\.html?', filename).group(1), 'Part'
-    elif re.match(r'Subpart_\d+\.\d+\.html?', filename):
-        return re.search(r'Subpart_(\d+\.\d+)\.html?', filename).group(1), 'Subpart'
-    elif re.match(r'\d+\.\d+-\d+\.html?', filename):
-        return re.search(r'(\d+\.\d+-\d+)\.html?', filename).group(1), 'Section'
-    elif re.match(r'\d+\.\d+\.html?', filename):
-        return re.search(r'(\d+\.\d+)\.html?', filename).group(1), 'Section'
-    elif re.match(r'Corrections+\.html?', filename):
-        return re.match(r'(Corrections)+\.html?', filename).group(1), 'Extra'
-    
+# Try to extract from filename patterns (without .html extension)
+    if re.match(r'FAR_\d+$', filename):
+        logger.debug(f"Found FAR")
+        return re.search(r'FAR_(\d+)$', filename).group(1), 'FAR'
+    elif re.match(r'Part_\d+$', filename):
+        logger.debug(f"Found Part")
+        return re.search(r'Part_(\d+)$', filename).group(1), 'Part'
+    elif re.match(r'Subpart_\d+\.\d+$', filename):
+        logger.debug(f"Found Subpart")
+        return re.search(r'Subpart_(\d+\.\d+)$', filename).group(1), 'Subpart'
+    elif re.match(r'\d+\.\d+-\d+$', filename):
+        logger.debug(f"Found Section")
+        return re.search(r'(\d+\.\d+-\d+)$', filename).group(1), 'Section'
+    elif re.match(r'\d+\.\d+$', filename):
+        logger.debug(f"Found Section")
+        return re.search(r'(\d+\.\d+)$', filename).group(1), 'Section'
+    elif re.match(r'Corrections$', filename):
+        logger.debug(f"Found Corrections")
+        return re.match(r'(Corrections)$', filename).group(1), 'Extra'
+    logger.debug("Didn't find anything in the file name.")
     # Try to extract from HTML content
     if html_content:
         # Look for ID in title or h1 elements
@@ -179,7 +188,7 @@ def parse_document_structure(file_contents):
         >>> parse_document_structure(file_contents)
         ({'FAR_1234.html': ['Part_27.html']}, {'1234': 'FAR'})
     """
-    logger.info("A1 Parsing document structure")
+    logger.info("Parsing document structure")
     # Dictionary to store document hierarchy
     document_structure = {}
     link_map = {}  # Maps files to the files that link to them
@@ -187,14 +196,14 @@ def parse_document_structure(file_contents):
     
     # First pass: extract document IDs and build link map
     for filename, data in file_contents.items():
-        logger.info(f"A1 Processing file: {filename}")
+        logger.debug(f"Processing file: {filename}")
         if filename.endswith(('.html', '.htm')):
             # Get the original HTML content before tag removal
             html_content = data.get('original_html', '')
             if html_content:
                 # Extract document ID and type
                 doc_id, doc_type = extract_document_id(filename, html_content)
-                logger.info(f"A1 Extracted document ID: {doc_id} and type: {doc_type}")
+                logger.debug(f"Extracted document ID: {doc_id} and type: {doc_type}")
 
                 if doc_id:
                     document_ids[filename] = {
@@ -204,7 +213,7 @@ def parse_document_structure(file_contents):
                 
                 # Extract links
                 links = extract_links_from_html(html_content)
-                logger.info(f"A1 Extracted links: {links}")
+                logger.debug(f"Extracted links: {links}")
 
                 for link in links:
                     # Normalize link to match filenames
@@ -230,10 +239,10 @@ def parse_document_structure(file_contents):
 
     # Combine both approaches to get all top-level files
     top_level_files = list(set(unlinked_files + far_files))
-    logger.info(f"All files: {all_files}")
-    logger.info(f"Unlinked files: {unlinked_files}")
-    logger.info(f"FAR files: {far_files}")
-    logger.info(f"Combined top-level files: {top_level_files}")
+    logger.debug(f"All files: {all_files}")
+    logger.debug(f"Unlinked files: {unlinked_files}")
+    logger.debug(f"FAR files: {far_files}")
+    logger.debug(f"Combined top-level files: {top_level_files}")
 
     # If still no top-level files found, use all HTML files
     if not top_level_files:
@@ -261,7 +270,7 @@ def parse_document_structure(file_contents):
         if path_so_far is None:
             path_so_far = []
             
-        logger.info(f"Building hierarchy for {filename} at level {level} with parent ID {parent_id}")
+        logger.debug(f"Building hierarchy for {filename} at level {level} with parent ID {parent_id}")
         
         # Check for circular references
         if filename in path_so_far:
@@ -294,7 +303,7 @@ def parse_document_structure(file_contents):
             'filename': filename,
             'children': []
         }
-        
+        logger.debug(f"Node = {node}")
         if parent_id:
             node['parent_id'] = parent_id
         
@@ -364,13 +373,14 @@ def chunk_text(text, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP):
     Returns:
         list: A list of text chunks.
     """
-    logger.info(f"Chunking text of length {len(text)}")
+    logger.debug(f"Chunking text of length {len(text)}")
     
     # Ensure chunk_overlap is less than chunk_size
     if chunk_overlap >= chunk_size:
         chunk_overlap = chunk_size // 2
         logger.warning(f"Chunk overlap was too large. Adjusted to {chunk_overlap}")
-    logger.info(f"Chunk size: {chunk_size}, Chunk overlap: {chunk_overlap}")
+
+    logger.debug(f"Chunk size: {chunk_size}, Chunk overlap: {chunk_overlap}")
     # For very short texts, just return the text as a single chunk
     if len(text) <= chunk_size:
         return [text]
@@ -445,12 +455,12 @@ def chunk_text(text, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP):
         # Ensure we're making progress
         if new_start <= end - chunk_size:
             new_start = end - chunk_overlap
-        logger.info(f"Next chunk starts at {start}")
+        logger.debug(f"Next chunk starts at {start}")
         # Safety check to prevent infinite loops
         if start >= len(text) or new_start == start:
             break
         start = new_start
-    logger.info(f"Created {len(chunks)} semantically meaningful chunks")
+    logger.debug(f"Created {len(chunks)} semantically meaningful chunks")
     return chunks
 
 def generate_embedding(text, max_retries=3, fallback_model_ids=None):
@@ -482,7 +492,7 @@ def generate_embedding(text, max_retries=3, fallback_model_ids=None):
     
     while retry_count < max_retries:
         try:
-            logger.info(f"Generating embedding using {EMBEDDING_MODEL_ID} (attempt {retry_count + 1})")
+            logger.debug(f"Generating embedding using {EMBEDDING_MODEL_ID} (attempt {retry_count + 1})")
             response = bedrock.invoke_model(
                 modelId=EMBEDDING_MODEL_ID,
                 body=json.dumps({
@@ -493,7 +503,7 @@ def generate_embedding(text, max_retries=3, fallback_model_ids=None):
             
             # Validate the response
             if 'embedding' in response_body and response_body['embedding']:
-                logger.info(f"Successfully generated embedding with {EMBEDDING_MODEL_ID}")
+                logger.debug(f"Successfully generated embedding with {EMBEDDING_MODEL_ID}")
                 return response_body['embedding']
             else:
                 logger.warning(f"Invalid response from {EMBEDDING_MODEL_ID}: {response_body}")
@@ -502,7 +512,7 @@ def generate_embedding(text, max_retries=3, fallback_model_ids=None):
         
         except Exception as e:
             last_exception = e
-            logger.warning(f"Error generating embedding with {EMBEDDING_MODEL_ID} (attempt {retry_count + 1}): {str(e)}")
+            logger.error(f"Error generating embedding with {EMBEDDING_MODEL_ID} (attempt {retry_count + 1}): {str(e)}")
             retry_count += 1
             time.sleep(2 ** retry_count)  # Exponential backoff
     
@@ -527,10 +537,10 @@ def generate_embedding(text, max_retries=3, fallback_model_ids=None):
                 logger.warning(f"Invalid response from fallback model {fallback_id}: {response_body}")
         
         except Exception as e:
-            logger.warning(f"Error with fallback model {fallback_id}: {str(e)}")
+            logger.error(f"Error with fallback model {fallback_id}: {str(e)}")
     
     # If all models fail, generate a simple hash-based embedding as last resort
-    logger.error("All embedding models failed. Generating simple hash-based embedding.")
+    logger.warning("All embedding models failed. Generating simple hash-based embedding.")
     try:
         # Create a simple embedding based on hash of text
         import hashlib
@@ -563,31 +573,31 @@ def extract_hierarchy_metadata(text_chunk):
     
     # Look for document type
     type_match = re.search(r'Type: ([^\|]+)', text_chunk)
-    logger.info(f"Type match: {type_match}")
+    logger.debug(f"Type match: {type_match}")
     if type_match:
         hierarchy['doc_type'] = type_match.group(1).strip()
     
     # Look for document ID
     id_match = re.search(r'ID: ([^\|]+)', text_chunk)
-    logger.info(f"ID match: {id_match}")
+    logger.debug(f"ID match: {id_match}")
     if id_match:
         hierarchy['doc_id'] = id_match.group(1).strip()
     
     # Look for parent ID
     parent_match = re.search(r'Parent: ([^\|]+)', text_chunk)
-    logger.info(f"Parent match: {parent_match}")
+    logger.debug(f"Parent match: {parent_match}")
     if parent_match:
         hierarchy['parent_id'] = parent_match.group(1).strip()
     
     # Look for level information
     level_match = re.search(r'Level: ([^\|]+)', text_chunk)
-    logger.info(f"Level match: {level_match}")
+    logger.debug(f"Level match: {level_match}")
     if level_match:
         hierarchy['level'] = level_match.group(1).strip()
     
     # Look for path information
     path_match = re.search(r'Path: ([^\|]+)', text_chunk)
-    logger.info(f"Path match: {path_match}")
+    logger.debug(f"Path match: {path_match}")
     if path_match:
         hierarchy['path'] = path_match.group(1).strip()
         
@@ -598,17 +608,17 @@ def extract_hierarchy_metadata(text_chunk):
     
     # Look for title
     title_match = re.search(r'Title: ([^\|]+)', text_chunk)
-    logger.info(f"Title match: {title_match}")
+    logger.debug(f"Title match: {title_match}")
     if title_match:
         hierarchy['title'] = title_match.group(1).strip()
     
     # Look for filename
     file_match = re.search(r'File: ([^\n]+)', text_chunk)
-    logger.info(f"File match: {file_match}")
+    logger.debug(f"File match: {file_match}")
     if file_match:
         hierarchy['filename'] = file_match.group(1).strip()
 
-    logger.info(f"Hierarchy: {hierarchy}")
+    logger.debug(f"Hierarchy: {hierarchy}")
     return hierarchy
 
 def store_embedding(document_id, chunk_id, text_chunk, embedding, metadata):
@@ -640,8 +650,8 @@ def store_embedding(document_id, chunk_id, text_chunk, embedding, metadata):
     """
     # Extract hierarchy information from the chunk
     hierarchy_metadata = extract_hierarchy_metadata(text_chunk)
-    logger.info(f"Extracted hierarchy metadata: {hierarchy_metadata}")
-    logger.info(f"Metadata: {metadata}")
+    logger.debug(f"Extracted hierarchy metadata: {hierarchy_metadata}")
+    logger.debug(f"Metadata: {metadata}")
     
     # Merge with existing metadata
     enhanced_metadata = {
@@ -685,7 +695,7 @@ def process_node(node, file_contents, structured_content):
         file_contents: Dictionary of file contents
         structured_content: List to append structured content to
     """
-    logger.info(f"Processing node: {node}")
+    logger.debug(f"Processing node: {node}")
     filename = node.get('filename')
     if filename in file_contents:
         content = file_contents[filename]['content']
@@ -722,7 +732,7 @@ def process_node(node, file_contents, structured_content):
         
         # Process children recursively
         for child in node.get('children', []):
-            logger.info(f"Child node: {child}")
+            logger.debug(f"Child node: {child}")
             process_node(child, file_contents, structured_content)
 
 def collect_filenames(node, processed_files):
@@ -873,19 +883,61 @@ def process_chunks(chunks, document_id, metadata):
     Returns:
         None
     """
-    logger.info(f"Chunking text into {len(chunks)} chunks for document {document_id}")
+    logger.debug(f"Processing {len(chunks)} chunks for document {document_id}")
     # Process each chunk
     for i, chunk in enumerate(chunks):
         # Generate embedding
         embedding = generate_embedding(chunk)
-        logger.info(f"Chunk {i+1} embedding generated")
+        logger.debug(f"Chunk {i+1} embedding generated")
         
         # Store in DynamoDB
         store_embedding(document_id, i, chunk, embedding, metadata)
         
 
 def process_bucket(bucket, prefix, checkpoint, time_limit_ms):
-    """Process documents with time limit and checkpointing"""
+    """
+    Process documents in an S3 bucket with checkpointing and time limits.
+    
+    This function processes documents in an S3 bucket in stages, with checkpointing
+    to handle Lambda timeouts. It maintains the hierarchical structure of documents
+    while processing them in batches, and can resume processing from where it left off.
+    
+    The processing is divided into stages:
+    1. Collecting files: List all objects in the bucket
+    2. Collecting contents: Get the content of each file
+    3. Building structure: Parse the document structure based on links
+    4. Creating structured content: Create content with hierarchical headers
+    5. Processing structure: Generate embeddings and store in DynamoDB
+    
+    Args:
+        bucket (str): Name of the S3 bucket containing the documents
+        prefix (str): Prefix to filter objects in the bucket
+        checkpoint (dict): Checkpoint data from a previous invocation, or a new checkpoint
+        time_limit_ms (int): Time limit in milliseconds before checkpointing
+        
+    Returns:
+        dict: A dictionary containing:
+            - 'is_complete' (bool): Whether processing is complete
+            - 'checkpoint' (dict): Updated checkpoint data for the next invocation
+                - 'file_list' (list): List of files in the bucket
+                - 'file_contents' (dict): Contents of processed files
+                - 'document_structure' (dict): Hierarchical document structure
+                - 'structured_content' (list): Content with hierarchical headers
+                - 'processed_files' (list): Files that have been fully processed
+                - 'processed_count' (int): Number of documents processed
+                - 'chunk_count' (int): Number of chunks processed
+                - 'stage' (str): Current processing stage
+                
+    Note:
+        This function is designed to be called repeatedly until processing is complete.
+        It uses the checkpoint to track progress and resume processing from where it
+        left off, allowing it to handle large document sets that exceed Lambda timeouts.
+        
+        The function converts datetime objects to ISO format strings to ensure they
+        can be serialized to JSON for checkpointing.
+    """
+
+
     start_time = int(time.time() * 1000)
     result = {
         'is_complete': False,
@@ -904,8 +956,14 @@ def process_bucket(bucket, prefix, checkpoint, time_limit_ms):
             # Check time limit
             current_time = int(time.time() * 1000)
             if current_time - start_time > time_limit_ms:
-                logger.info(f"Time limit reached during file collection. Checkpointing.")
-                checkpoint['file_list'] = all_objects
+                logger.warning(f"Time limit reached during file collection. Checkpointing.")
+                # Convert datetime objects to strings before saving
+                serializable_objects = []
+                for obj in all_objects:
+                    serializable_obj = {k: (v.isoformat() if isinstance(v, datetime.datetime) else v) 
+                                       for k, v in obj.items()}
+                    serializable_objects.append(serializable_obj)
+                checkpoint['file_list'] = serializable_objects
                 return result
             
             # List objects
@@ -916,7 +974,11 @@ def process_bucket(bucket, prefix, checkpoint, time_limit_ms):
             response = s3.list_objects_v2(**params)
             
             if 'Contents' in response:
-                all_objects.extend(response['Contents'])
+                # Convert datetime objects to strings before adding to list
+                for obj in response['Contents']:
+                    serializable_obj = {k: (v.isoformat() if isinstance(v, datetime.datetime) else v) 
+                                       for k, v in obj.items()}
+                    all_objects.append(serializable_obj)
                 
             if not response.get('IsTruncated'):
                 break
@@ -936,7 +998,7 @@ def process_bucket(bucket, prefix, checkpoint, time_limit_ms):
             # Check time limit
             current_time = int(time.time() * 1000)
             if current_time - start_time > time_limit_ms:
-                logger.info(f"Time limit reached during content collection. Checkpointing.")
+                logger.warning(f"Time limit reached during content collection. Checkpointing.")
                 return result
             
             file_name = s3_object['Key']
@@ -989,7 +1051,7 @@ def process_bucket(bucket, prefix, checkpoint, time_limit_ms):
         # Check time limit
         current_time = int(time.time() * 1000)
         if current_time - start_time > time_limit_ms:
-            logger.info(f"Time limit reached before building structure. Checkpointing.")
+            logger.warning(f"Time limit reached before building structure. Checkpointing.")
             return result
             
         # Build document structure
@@ -1003,7 +1065,7 @@ def process_bucket(bucket, prefix, checkpoint, time_limit_ms):
         # Check time limit
         current_time = int(time.time() * 1000)
         if current_time - start_time > time_limit_ms:
-            logger.info(f"Time limit reached before creating structured content. Checkpointing.")
+            logger.warning(f"Time limit reached before creating structured content. Checkpointing.")
             return result
             
         # Create structured content
@@ -1046,16 +1108,24 @@ def process_bucket(bucket, prefix, checkpoint, time_limit_ms):
     if checkpoint['stage'] == 'processing_structure':
         logger.info("Stage 5: Processing structured content")
         
+        # Initialize processed_items if it doesn't exist
+        if 'processed_items' not in checkpoint:
+            checkpoint['processed_items'] = []
+        
         # Process items that haven't been processed yet
         for i, content_item in enumerate(checkpoint['structured_content']):
+            # Generate a unique ID for this content item
+            item_id = f"{content_item.get('file')}_{i}"
+            
             # Skip if already processed
-            if content_item.get('file') in checkpoint['processed_files']:
+            if item_id in checkpoint['processed_items']:
+                logger.info(f"Already processed item {item_id}")
                 continue
                 
             # Check time limit
             current_time = int(time.time() * 1000)
             if current_time - start_time > time_limit_ms:
-                logger.info(f"Time limit reached during structure processing. Checkpointing.")
+                logger.warning(f"Time limit reached during structure processing. Checkpointing.")
                 return result
                 
             try:
@@ -1077,17 +1147,26 @@ def process_bucket(bucket, prefix, checkpoint, time_limit_ms):
                 process_chunks(chunks, document_id, metadata)
                 
                 # Update checkpoint
-                checkpoint['processed_files'].append(content_item['file'])
+                if content_item['file'] not in checkpoint['processed_files']:
+                    checkpoint['processed_files'].append(content_item['file'])
+                
+                # Mark this specific item as processed
+                checkpoint['processed_items'].append(item_id)
+                
                 checkpoint['processed_count'] += 1
                 checkpoint['chunk_count'] += len(chunks)
                 
             except Exception as e:
                 logger.error(f"Error processing content item {i}: {str(e)}")
         
+        logger.info("Done with Stage 5")
         # Check if all items have been processed
-        if len(checkpoint['processed_files']) == len(checkpoint['structured_content']):
+        logger.info(f"processed_items vs structured_content {len(checkpoint['processed_items'])} ?? {len(checkpoint['structured_content'])} ")
+        
+        if len(checkpoint['processed_items']) >= len(checkpoint['structured_content']):
             logger.info("All items processed. Processing complete.")
             result['is_complete'] = True
+
     
     return result
 
@@ -1100,6 +1179,7 @@ def lambda_handler(event, context):
         checkpoint_key = event.get('checkpoint_key')
         
         logger.info(f"Processing documents in bucket: {bucket} with prefix: {prefix}")
+        logger.info(f"Checkpoint key: {checkpoint_key}")
         
         if not bucket:
             return {
@@ -1109,15 +1189,27 @@ def lambda_handler(event, context):
                 })
             }
         
+        # Initialize or load checkpoint
+        checkpoint = load_checkpoint(bucket, checkpoint_key)
+        
+        # Check if processing is already complete
+        if checkpoint.get('is_complete', False):
+            logger.info("Processing is already complete. Nothing to do.")
+            return {
+                'statusCode': 200,
+                'body': json.dumps({
+                    'message': 'Processing already complete',
+                    'documents_processed': checkpoint.get('processed_count', 0),
+                    'chunks_processed': checkpoint.get('chunk_count', 0)
+                })
+            }
+        
         # Calculate remaining time
-        remaining_time = context.get_remaining_time_in_millis() if context else 840000  # Default to 14 minutes
-        logger.info(f"Remaining time: {remaining_time} ms")
+        remaining_time = context.get_remaining_time_in_millis() if context else 300000  # Default to 5 minutes
+        logger.debug(f"Remaining time: {remaining_time} ms")
         
         # Reserve 30 seconds for cleanup and checkpointing
         processing_time_limit = remaining_time - 30000
-        
-        # Initialize or load checkpoint
-        checkpoint = load_checkpoint(bucket, checkpoint_key)
         
         # Process with time limit
         result = process_bucket(bucket, prefix, checkpoint, processing_time_limit)
@@ -1145,15 +1237,22 @@ def lambda_handler(event, context):
                 'statusCode': 202,
                 'body': json.dumps({
                     'message': 'Processing continued in new invocation',
+                    'checkpoint_key': checkpoint_key,
                     'documents_processed_so_far': result['checkpoint']['processed_count'],
                     'chunks_processed_so_far': result['checkpoint']['chunk_count']
                 })
             }
         else:
+            # Mark checkpoint as complete
+            result['checkpoint']['is_complete'] = True
+            final_checkpoint_key = save_checkpoint(bucket, result['checkpoint'])
+            
+            logger.info(f"Processing complete! Final checkpoint: {final_checkpoint_key}")
             return {
                 'statusCode': 200,
                 'body': json.dumps({
                     'message': 'Processing complete',
+                    'final_checkpoint': final_checkpoint_key,
                     'documents_processed': result['checkpoint']['processed_count'],
                     'chunks_processed': result['checkpoint']['chunk_count']
                 })
@@ -1168,13 +1267,21 @@ def lambda_handler(event, context):
             })
         }
 
+
 def load_checkpoint(bucket, checkpoint_key):
     """Load checkpoint from S3 or initialize a new one"""
     if checkpoint_key:
         try:
             response = s3.get_object(Bucket=bucket, Key=checkpoint_key)
             checkpoint = json.loads(response['Body'].read().decode('utf-8'))
-            logger.info(f"Loaded checkpoint: {checkpoint}")
+            logger.debug(f"Loaded checkpoint: {checkpoint}")
+            
+            # Check if checkpoint is marked as complete
+            if checkpoint.get('is_complete', False):
+                logger.info("Loaded checkpoint is marked as complete. No further processing needed.")
+                # Return checkpoint with is_complete flag
+                return checkpoint
+                
             return checkpoint
         except Exception as e:
             logger.error(f"Error loading checkpoint: {str(e)}")
@@ -1188,8 +1295,10 @@ def load_checkpoint(bucket, checkpoint_key):
         'processed_files': [],
         'processed_count': 0,
         'chunk_count': 0,
-        'stage': 'collecting_files'
+        'stage': 'collecting_files',
+        'is_complete': False
     }
+
 
 def save_checkpoint(bucket, checkpoint):
     """Save checkpoint to S3"""
@@ -1199,14 +1308,15 @@ def save_checkpoint(bucket, checkpoint):
     lightweight_checkpoint = {
         'file_list': checkpoint['file_list'],
         'processed_files': checkpoint['processed_files'],
+        'processed_items': checkpoint.get('processed_items', []),  # Add this line
         'processed_count': checkpoint['processed_count'],
         'chunk_count': checkpoint['chunk_count'],
-        'stage': checkpoint['stage']
+        'stage': checkpoint['stage'],
+        'is_complete': checkpoint.get('is_complete', False)  # Add this line
     }
     
     # If we're in the processing stage, include document structure
     if checkpoint['stage'] == 'processing_structure':
-        lightweight_checkpoint['document_structure'] = checkpoint['document_structure']
         lightweight_checkpoint['structured_content'] = checkpoint['structured_content']
     
     # Save to S3

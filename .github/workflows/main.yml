@@ -211,7 +211,7 @@ jobs:
                   --function-name $FUNCTION_NAME \
                   --timeout 900 \
                   --memory-size 1024 \
-                  --environment "Variables={EMBEDDINGS_TABLE=$TABLE_NAME,EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0,CHUNK_SIZE=1000,CHUNK_OVERLAP=200,LOG_LEVEL=INFO}" 2>/dev/null; then
+                  --environment "Variables={EMBEDDINGS_TABLE=$TABLE_NAME,EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0,LLM_MODEL_ID=anthropic.claude-3-5-sonnet-20241022-v2:0,CHUNK_SIZE=1000,CHUNK_OVERLAP=200,LOG_LEVEL=INFO}" 2>/dev/null; then
                   echo "Successfully updated function configuration"
                   break
                 else
@@ -234,7 +234,7 @@ jobs:
                 --code S3Bucket=$LAMBDA_CODE_BUCKET,S3Key=$S3_KEY \
                 --timeout 900 \
                 --memory-size 1024 \
-                --environment "Variables={EMBEDDINGS_TABLE=$TABLE_NAME,EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0,CHUNK_SIZE=1000,CHUNK_OVERLAP=200,LOG_LEVEL=INFO}" \
+                --environment "Variables={EMBEDDINGS_TABLE=$TABLE_NAME,EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0,LLM_MODEL_ID=anthropic.claude-3-5-sonnet-20241022-v2:0,CHUNK_SIZE=1000,CHUNK_OVERLAP=200,LOG_LEVEL=INFO}" \
                 --timeout 900 \
                 --memory-size 1024
             fi

@@ -189,6 +189,8 @@ Resources:
         Variables:
           EMBEDDINGS_TABLE: !Ref EmbeddingsTableName
           EMBEDDING_MODEL_ID: !Ref AIModel
+          LLM_MODEL_ID: "arn:aws:bedrock:us-east-1:879961718230:inference-profile/us.anthropic.claude-3-5-sonnet-20241022-v2:0"
+
 
   # S3 Bucket for Document Storage
   DocumentsBucket:

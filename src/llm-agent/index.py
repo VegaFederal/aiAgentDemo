@@ -13,13 +13,23 @@ dynamodb = boto3.resource('dynamodb')
 
 # Get environment variables
 EMBEDDINGS_TABLE = os.environ.get('EMBEDDINGS_TABLE')
-EMBEDDING_MODEL_ID = os.environ.get('EMBEDDING_MODEL_ID')
-LLM_MODEL_ID = os.environ.get('LLM_MODEL_ID')
+EMBEDDING_MODEL_ID = os.environ.get('EMBEDDING_MODEL_ID', 'amazon.titan-embed-text-v2:0')
+LLM_MODEL_ID = os.environ.get('LLM_MODEL_ID', 'anthropic.claude-3-5-sonnet-20241022-v2:0')
 SIMILARITY_THRESHOLD = float(os.environ.get('SIMILARITY_THRESHOLD', '0.7'))
 MAX_CONTEXT_DOCS = int(os.environ.get('MAX_CONTEXT_DOCS', '5'))
 
 # Log configuration
 logger.info(f"Configuration: EMBEDDINGS_TABLE={EMBEDDINGS_TABLE}, EMBEDDING_MODEL_ID={EMBEDDING_MODEL_ID}, LLM_MODEL_ID={LLM_MODEL_ID}")
+
+# Validate required configuration
+if not EMBEDDINGS_TABLE:
+    logger.error("Missing required environment variable: EMBEDDINGS_TABLE")
+    
+if not EMBEDDING_MODEL_ID:
+    logger.error("Missing required environment variable: EMBEDDING_MODEL_ID")
+    
+if not LLM_MODEL_ID:
+    logger.error("Missing required environment variable: LLM_MODEL_ID")
 
 # Get table reference
 embeddings_table = dynamodb.Table(EMBEDDINGS_TABLE)
@@ -137,6 +147,12 @@ def call_claude(query, context_docs, question_type=None):
     context_text = "\n\n".join([doc['content'] for doc in context_docs])
     logger.info(f"Calling Claude with context length {len(context_text)} and question type {question_type}")
     
+    # Verify model ID is available
+    if not LLM_MODEL_ID:
+        error_msg = "Cannot call LLM: Model ID is not configured"
+        logger.error(error_msg)
+        return f"Error: {error_msg}. Please check the Lambda configuration."
+    
     # Prepare the prompt for Claude
     system_prompt = """You are a helpful AI assistant answering questions based on the provided context.
     Only use information from the context to answer the question. If the context doesn't contain the answer, say you don't know."""
@@ -158,8 +174,6 @@ def call_claude(query, context_docs, question_type=None):
     # Call Claude with inference profile
     try:
         logger.info(f"Invoking Bedrock model: {LLM_MODEL_ID}")
-        logger.info(f"Sending {len(messages)} messages to Claude")
-        logger.info(f"Sending {messages} to Claude")
         response = bedrock.invoke_model(
             modelId=LLM_MODEL_ID,
             contentType="application/json",
@@ -177,7 +191,8 @@ def call_claude(query, context_docs, question_type=None):
         return response_text
     except Exception as e:
         logger.error(f"Error calling Claude: {str(e)}")
-        raise
+        error_message = f"Error calling LLM: {str(e)}"
+        return error_message
 
 def lambda_handler(event, context):
     """Handle API Gateway requests for the LLM agent"""
@@ -198,14 +213,51 @@ def lambda_handler(event, context):
                 'body': json.dumps({'error': 'Missing query parameter'})
             }
         
+        # Check for required environment variables
+        if not EMBEDDINGS_TABLE:
+            error_msg = "Missing required environment variable: EMBEDDINGS_TABLE"
+            logger.error(error_msg)
+            return {
+                'statusCode': 500,
+                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({'error': error_msg})
+            }
+        
         # Generate embedding for the query
-        query_embedding = generate_embedding(query)
+        try:
+            query_embedding = generate_embedding(query)
+        except Exception as e:
+            error_msg = f"Error generating embedding: {str(e)}"
+            logger.error(error_msg)
+            return {
+                'statusCode': 500,
+                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({'error': error_msg})
+            }
         
         # Retrieve relevant context
-        context_docs = retrieve_relevant_context(query_embedding)
+        try:
+            context_docs = retrieve_relevant_context(query_embedding)
+        except Exception as e:
+            error_msg = f"Error retrieving context: {str(e)}"
+            logger.error(error_msg)
+            return {
+                'statusCode': 500,
+                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({'error': error_msg})
+            }
         
         # Call Claude with the query and context
         response = call_claude(query, context_docs, question_type)
+        
+        # Check if response contains error message
+        if response and response.startswith("Error:"):
+            logger.error(f"LLM error: {response}")
+            return {
+                'statusCode': 500,
+                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({'error': response})
+            }
         
         logger.info("Successfully processed request")
         return {

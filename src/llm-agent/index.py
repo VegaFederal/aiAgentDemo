@@ -46,66 +46,30 @@ def cosine_similarity(vec_a, vec_b):
     return dot_product / (norm_a * norm_b)
 
 def retrieve_relevant_context(query_embedding):
-    """Retrieve relevant documents based on embedding similarity using vector search"""
-    logger.info("Retrieving relevant context using vector search")
+    """Retrieve relevant documents based on embedding similarity"""
+    logger.info("Using optimized retrieval method")
     
-    try:
-        # Use DynamoDB's vector search capability
-        response = dynamodb.meta.client.query(
-            TableName=EMBEDDINGS_TABLE,
-            IndexName='EmbeddingVectorSearch',
-            Select='ALL_ATTRIBUTES',
-            VectorSearchConfiguration={
-                'CollectionName': 'EmbeddingCollection'
-            },
-            VectorSearchExpression={
-                'VectorField': 'embedding_vector',
-                'QueryVector': query_embedding,
-                'Distance': 'COSINE',
-                'K': MAX_CONTEXT_DOCS * 2  # Retrieve a few more than needed to filter by threshold
-            }
-        )
-        
-        # Process the results
-        similarities = []
-        for item in response.get('Items', []):
-            # Extract the document content and similarity score
-            document_id = item.get('document_id', '')
-            content = item.get('content', '')
-            # Vector search returns distance, convert to similarity (1 - distance for cosine)
-            distance = float(item.get('_distance', 0))
-            similarity = 1.0 - distance
-            
-            if similarity >= SIMILARITY_THRESHOLD:
-                similarities.append({
-                    'document_id': document_id,
-                    'content': content,
-                    'similarity': similarity
-                })
-        
-        # Sort by similarity (highest first) and take top N
-        similarities.sort(key=lambda x: x['similarity'], reverse=True)
-        selected_docs = similarities[:MAX_CONTEXT_DOCS]
-        logger.info(f"Vector search selected {len(selected_docs)} relevant documents with similarities: {[round(doc['similarity'], 3) for doc in selected_docs]}")
-        return selected_docs
-        
-    except Exception as e:
-        logger.error(f"Vector search failed: {str(e)}. Falling back to alternative method.")
-        return retrieve_relevant_context_fallback(query_embedding)
+    # Since vector search isn't available, use the optimized fallback method directly
+    return retrieve_relevant_context_fallback(query_embedding)
 
 def retrieve_relevant_context_fallback(query_embedding):
-    """Fallback method that uses batched queries and early filtering"""
-    logger.info("Using fallback retrieval method with batched processing")
+    """Optimized fallback method for large datasets"""
+    logger.info("Using optimized fallback method with aggressive batching")
     
-    # Use batch processing with early filtering
-    similarities = []
-    last_evaluated_key = None
-    batch_size = 100  # Process in smaller batches
+    # Increase batch size for fewer network calls
+    batch_size = 500
     
-    # Use projection expression to only retrieve necessary fields
+    # Only retrieve necessary fields
     projection_expression = "id, document_id, content, embedding_json"
     
-    while True:
+    # Use early stopping with a lower threshold for initial filtering
+    initial_threshold = SIMILARITY_THRESHOLD * 0.8
+    similarities = []
+    last_evaluated_key = None
+    processed_count = 0
+    max_processed = 15600  # Safety limit to avoid processing too many items
+    
+    while processed_count < max_processed:
         # Prepare scan parameters for this batch
         scan_params = {
             'TableName': EMBEDDINGS_TABLE,
@@ -118,37 +82,52 @@ def retrieve_relevant_context_fallback(query_embedding):
         
         # Execute the scan for this batch
         response = dynamodb.meta.client.scan(**scan_params)
+        batch_items = response.get('Items', [])
+        processed_count += len(batch_items)
+        
+        logger.info(f"Processing batch of {len(batch_items)} items, total processed: {processed_count}")
         
         # Process this batch
-        for item in response.get('Items', []):
+        batch_similarities = []
+        for item in batch_items:
             try:
                 doc_embedding = json.loads(item.get('embedding_json', '[]'))
                 similarity = cosine_similarity(query_embedding, doc_embedding)
                 
-                if similarity >= SIMILARITY_THRESHOLD:
-                    similarities.append({
+                # Use initial lower threshold for faster filtering
+                if similarity >= initial_threshold:
+                    batch_similarities.append({
                         'document_id': item.get('document_id', ''),
                         'content': item.get('content', ''),
                         'similarity': similarity
                     })
-                    
-                    # If we already have enough matches, we can optimize by stopping early
-                    if len(similarities) >= MAX_CONTEXT_DOCS * 3:
-                        break
             except Exception as e:
-                logger.error(f"Error processing item in fallback: {str(e)}")
+                logger.error(f"Error processing item: {str(e)}")
+        
+        # Add batch results to overall results
+        similarities.extend(batch_similarities)
+        logger.info(f"Found {len(batch_similarities)} potential matches in this batch, total: {len(similarities)}")
         
         # Update pagination key
         last_evaluated_key = response.get('LastEvaluatedKey')
         
-        # Break if no more pages or we have enough results
-        if not last_evaluated_key or len(similarities) >= MAX_CONTEXT_DOCS * 3:
+        # Aggressive early stopping if we have enough good matches
+        if len(similarities) >= MAX_CONTEXT_DOCS * 5:
+            logger.info(f"Early stopping after finding {len(similarities)} potential matches")
+            break
+            
+        # Break if no more pages
+        if not last_evaluated_key:
+            logger.info("Reached end of table")
             break
     
-    # Sort by similarity (highest first) and take top N
-    similarities.sort(key=lambda x: x['similarity'], reverse=True)
-    selected_docs = similarities[:MAX_CONTEXT_DOCS]
-    logger.info(f"Fallback method selected {len(selected_docs)} relevant documents")
+    # Final filtering with actual threshold and sorting
+    logger.info(f"Filtering {len(similarities)} potential matches with threshold {SIMILARITY_THRESHOLD}")
+    final_similarities = [doc for doc in similarities if doc['similarity'] >= SIMILARITY_THRESHOLD]
+    final_similarities.sort(key=lambda x: x['similarity'], reverse=True)
+    selected_docs = final_similarities[:MAX_CONTEXT_DOCS]
+    
+    logger.info(f"Selected {len(selected_docs)} most relevant documents from {processed_count} total records")
     return selected_docs
 
 

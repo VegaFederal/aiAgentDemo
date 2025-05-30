@@ -50,6 +50,7 @@ Resources:
   LlmAgentMethod:
     Type: AWS::ApiGateway::Method
     DependsOn: LlmAgentPermission
+    TimeoutInMillis: 120000  # 2 minutes timeout
     Properties:
       RestApiId: !Ref LlmAgentApi
       ResourceId: !Ref LlmAgentResource
@@ -64,20 +65,6 @@ Resources:
         - StatusCode: '200'
           ResponseParameters:
             method.response.header.Access-Control-Allow-Origin: true
-
-  # API Gateway Stage with extended timeout
-  LlmAgentStage:
-    Type: AWS::ApiGateway::Stage
-    Properties:
-      RestApiId: !Ref LlmAgentApi
-      DeploymentId: !Ref LlmAgentDeployment
-      StageName: !Ref Environment
-      MethodSettings:
-        - ResourcePath: '/*'
-          HttpMethod: '*'
-          ThrottlingBurstLimit: 5
-          ThrottlingRateLimit: 10
-          TimeoutInMillis: 120000  # 2 minutes timeout
 
   # API Gateway Deployment
   LlmAgentDeployment:

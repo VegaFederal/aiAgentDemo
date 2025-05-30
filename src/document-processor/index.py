@@ -651,6 +651,9 @@ def store_embedding(document_id, chunk_id, text_chunk, embedding, metadata):
         stores it both within the metadata and as top-level attributes for
         efficient querying.
     """
+    # Import decimal for DynamoDB compatibility
+    from decimal import Decimal
+    
     # Extract hierarchy information from the chunk
     hierarchy_metadata = extract_hierarchy_metadata(text_chunk)
     logger.debug(f"Extracted hierarchy metadata: {hierarchy_metadata}")
@@ -666,6 +669,9 @@ def store_embedding(document_id, chunk_id, text_chunk, embedding, metadata):
     content_parts = text_chunk.split('\n\n', 1)
     content = content_parts[1] if len(content_parts) > 1 else text_chunk
     
+    # Convert embedding floats to Decimal for DynamoDB compatibility
+    decimal_embedding = [Decimal(str(value)) for value in embedding]
+    
     item = {
         'id': f"{document_id}_{chunk_id}",
         'document_id': document_id,
@@ -673,10 +679,10 @@ def store_embedding(document_id, chunk_id, text_chunk, embedding, metadata):
         'content': content,  # Store content without header
         'full_chunk': text_chunk,  # Store full chunk with header
         'embedding_json': json.dumps(embedding),  # Store as JSON string for backward compatibility
-        'embedding_vector': embedding,  # Store as native list for vector search
+        'embedding_vector': decimal_embedding,  # Store as Decimal list for vector search
         'metadata': enhanced_metadata
     }
-    logger.info(f"Storing item: {item}")
+    logger.debug(f"Storing item with Decimal embedding")
     
     # Add searchable attributes for hierarchy
     if 'doc_id' in hierarchy_metadata:

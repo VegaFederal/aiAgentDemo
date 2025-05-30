@@ -129,6 +129,18 @@ jobs:
 
       - name: Update or Create Lambda functions
         run: |
+          # Set API Gateway timeout to 29 seconds (maximum allowed)
+          API_ID=$(aws apigateway get-rest-apis --query "items[?name=='aiad-llm-api-${Environment}'].id" --output text)
+          if [ ! -z "$API_ID" ]; then
+            echo "Found API Gateway ID: $API_ID"
+            aws apigateway update-stage \
+              --rest-api-id $API_ID \
+              --stage-name ${Environment} \
+              --patch-operations op=replace,path=/*/*/timeout/integrationTimeout,value=29000
+            echo "Updated API Gateway timeout to 29 seconds"
+          else
+            echo "API Gateway not found, will be created with default settings"
+          fi
           # Get stack outputs - with error handling
           echo "Looking for DocumentProcessingStack outputs..."
           PROCESSING_STACK_ID=$(aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE --query "StackSummaries[?contains(StackName, '${{ env.PROJECT_NAME }}-DocumentProcessingStack')].StackName" --output text || echo "")
@@ -209,7 +221,7 @@ jobs:
               while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
                 if aws lambda update-function-configuration \
                   --function-name $FUNCTION_NAME \
-                  --timeout 900 \
+                  --timeout 120 \
                   --memory-size 1024 \
                   --environment "Variables={EMBEDDINGS_TABLE=$TABLE_NAME,EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0,LLM_MODEL_ID=arn:aws:bedrock:us-east-1:879961718230:inference-profile/us.anthropic.claude-3-5-sonnet-20241022-v2:0,CHUNK_SIZE=1000,CHUNK_OVERLAP=200,LOG_LEVEL=INFO}" 2>/dev/null; then
                   echo "Successfully updated function configuration"

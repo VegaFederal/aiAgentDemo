@@ -65,19 +65,13 @@ Resources:
           ResponseParameters:
             method.response.header.Access-Control-Allow-Origin: true
 
-  # API Gateway Stage with extended timeout
+  # API Gateway Stage
   LlmAgentStage:
     Type: AWS::ApiGateway::Stage
     Properties:
       RestApiId: !Ref LlmAgentApi
       DeploymentId: !Ref LlmAgentDeployment
       StageName: !Ref Environment
-      MethodSettings:
-        - ResourcePath: '/*'
-          HttpMethod: '*'
-          ThrottlingBurstLimit: 5
-          ThrottlingRateLimit: 10
-          TimeoutInMillis: 120000  # 2 minutes timeout
 
   # API Gateway Deployment
   LlmAgentDeployment:

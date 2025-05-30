@@ -1,5 +1,6 @@
 import json
 import os
+import time
 import boto3
 import logging
 
@@ -63,23 +64,34 @@ def retrieve_relevant_context(query_embedding):
     return retrieve_relevant_context_fallback(query_embedding)
 
 def retrieve_relevant_context_fallback(query_embedding):
-    """Optimized fallback method for large datasets"""
-    logger.info("Using optimized fallback method with aggressive batching")
+    """Optimized fallback method for large datasets with time limit"""
+    logger.info("Using optimized fallback method with aggressive batching and time limit")
+    
+    # Set time limit to ensure we don't exceed Lambda/API Gateway timeouts
+    # Allow 20 seconds for the rest of the processing (embedding generation, LLM call)
+    time_limit_seconds = 100  # 100 seconds max for context retrieval
+    start_time = time.time()
     
     # Increase batch size for fewer network calls
-    batch_size = 500
+    batch_size = 1000  # Process more items per batch
     
     # Only retrieve necessary fields
     projection_expression = "id, document_id, content, embedding_json"
     
     # Use early stopping with a lower threshold for initial filtering
-    initial_threshold = SIMILARITY_THRESHOLD * 0.8
+    initial_threshold = SIMILARITY_THRESHOLD * 0.7  # More aggressive initial filtering
     similarities = []
     last_evaluated_key = None
     processed_count = 0
     max_processed = 15600  # Safety limit to avoid processing too many items
     
     while processed_count < max_processed:
+        # Check if we're approaching the time limit
+        elapsed_time = time.time() - start_time
+        if elapsed_time > time_limit_seconds:
+            logger.warning(f"Time limit reached after {elapsed_time:.2f} seconds. Processed {processed_count} items.")
+            break
+            
         # Prepare scan parameters for this batch
         scan_params = {
             'TableName': EMBEDDINGS_TABLE,
@@ -121,8 +133,8 @@ def retrieve_relevant_context_fallback(query_embedding):
         # Update pagination key
         last_evaluated_key = response.get('LastEvaluatedKey')
         
-        # Aggressive early stopping if we have enough good matches
-        if len(similarities) >= MAX_CONTEXT_DOCS * 5:
+        # Very aggressive early stopping if we have enough good matches
+        if len(similarities) >= MAX_CONTEXT_DOCS * 3:
             logger.info(f"Early stopping after finding {len(similarities)} potential matches")
             break
             
@@ -137,7 +149,8 @@ def retrieve_relevant_context_fallback(query_embedding):
     final_similarities.sort(key=lambda x: x['similarity'], reverse=True)
     selected_docs = final_similarities[:MAX_CONTEXT_DOCS]
     
-    logger.info(f"Selected {len(selected_docs)} most relevant documents from {processed_count} total records")
+    elapsed_time = time.time() - start_time
+    logger.info(f"Selected {len(selected_docs)} most relevant documents from {processed_count} total records in {elapsed_time:.2f} seconds")
     return selected_docs
 
 

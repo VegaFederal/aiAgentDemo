@@ -71,12 +71,20 @@ Resources:
     DependsOn: LlmAgentMethod
     Properties:
       RestApiId: !Ref LlmAgentApi
+      Description: "API Deployment"
+
+  # API Gateway Stage
+  LlmAgentStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      DeploymentId: !Ref LlmAgentDeployment
+      RestApiId: !Ref LlmAgentApi
       StageName: !Ref Environment
 
 Outputs:
   LlmAgentApiEndpoint:
     Description: API Gateway endpoint URL for LLM Agent
-    Value: !Sub https://${LlmAgentApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/api
+    Value: !Sub https://${LlmAgentApi}.execute-api.${AWS::Region}.amazonaws.com/${LlmAgentStage}/api
   
   LlmAgentApiId:
     Description: API Gateway ID

@@ -65,20 +65,13 @@ Resources:
           ResponseParameters:
             method.response.header.Access-Control-Allow-Origin: true
 
-  # API Gateway Stage
-  LlmAgentStage:
-    Type: AWS::ApiGateway::Stage
-    Properties:
-      RestApiId: !Ref LlmAgentApi
-      DeploymentId: !Ref LlmAgentDeployment
-      StageName: !Ref Environment
-
   # API Gateway Deployment
   LlmAgentDeployment:
     Type: AWS::ApiGateway::Deployment
     DependsOn: LlmAgentMethod
     Properties:
       RestApiId: !Ref LlmAgentApi
+      StageName: !Ref Environment
 
 Outputs:
   LlmAgentApiEndpoint:

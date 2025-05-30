@@ -136,7 +136,7 @@ jobs:
             aws apigateway update-stage \
               --rest-api-id $API_ID \
               --stage-name ${Environment} \
-              --patch-operations op=replace,path=/*/*/timeout/integrationTimeout,value=29000
+              --patch-operations '[{"op":"replace","path":"/*/*/timeout/integrationTimeout","value":"29000"}]'
             echo "Updated API Gateway timeout to 29 seconds"
           else
             echo "API Gateway not found, will be created with default settings"

@@ -88,7 +88,7 @@ Resources:
           ThrottlingBurstLimit: 10
           ThrottlingRateLimit: 5
           # Set timeout to maximum allowed (29 seconds)
-          IntegrationTimeoutInMillis: 29000
+          TimeoutInMillis: 29000
 
 Outputs:
   LlmAgentApiEndpoint:

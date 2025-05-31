@@ -73,13 +73,22 @@ Resources:
       RestApiId: !Ref LlmAgentApi
       Description: "API Deployment"
 
-  # API Gateway Stage
+  # API Gateway Stage with extended timeout
   LlmAgentStage:
     Type: AWS::ApiGateway::Stage
     Properties:
       DeploymentId: !Ref LlmAgentDeployment
       RestApiId: !Ref LlmAgentApi
       StageName: !Ref Environment
+      MethodSettings:
+        - ResourcePath: "/*"
+          HttpMethod: "*"
+          MetricsEnabled: true
+          DataTraceEnabled: false
+          ThrottlingBurstLimit: 10
+          ThrottlingRateLimit: 5
+          # Set timeout to maximum allowed (29 seconds)
+          IntegrationTimeoutInMillis: 29000
 
 Outputs:
   LlmAgentApiEndpoint:

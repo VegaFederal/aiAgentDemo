@@ -59,7 +59,7 @@ Resources:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
         Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LlmAgentFunctionArn}/invocations
-        TimeoutInMillis: 29000
+        TimeoutInMillis: 50000
       # Add CORS support
       MethodResponses:
         - StatusCode: '200'

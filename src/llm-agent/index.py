@@ -218,7 +218,7 @@ def lambda_handler(event, context):
         batch_size = body.get('batch_size', 1000)  # Number of records to process per batch
         last_key = body.get('last_key')  # Pagination token from previous request
         
-        logger.info(f"Processing query: '{query}' with question_type: {question_type}")
+        logger.info(f"Processing query: '{query}' with question_type: {question_type}, batch_size: 1000")
         
         if not query:
             logger.warning("Missing query parameter")
@@ -258,7 +258,7 @@ def lambda_handler(event, context):
             # Prepare scan parameters for this batch
             scan_params = {
                 'TableName': EMBEDDINGS_TABLE,
-                'Limit': batch_size,
+                'Limit': 1000,  # Force batch size to 1000 regardless of input
                 'ProjectionExpression': "id, document_id, content, embedding_json"
             }
             

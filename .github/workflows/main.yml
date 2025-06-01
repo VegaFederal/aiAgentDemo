@@ -129,15 +129,11 @@ jobs:
 
       - name: Update or Create Lambda functions
         run: |
-          # Set API Gateway timeout to 29 seconds (maximum allowed)
+          # API Gateway timeout is no longer needed with streaming implementation
           API_ID=$(aws apigateway get-rest-apis --query "items[?name=='aiad-llm-api-${Environment}'].id" --output text)
           if [ ! -z "$API_ID" ]; then
             echo "Found API Gateway ID: $API_ID"
-            aws apigateway update-stage \
-              --rest-api-id $API_ID \
-              --stage-name ${Environment} \
-              --patch-operations '[{"op":"replace","path":"/*/*/timeout/integrationTimeout","value":"29000"}]'
-            echo "Updated API Gateway timeout to 29 seconds"
+            echo "Using default API Gateway timeout settings with streaming implementation"
           else
             echo "API Gateway not found, will be created with default settings"
           fi

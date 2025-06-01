@@ -1,10 +1,8 @@
 // API client for the LLM Agent
 
 // Base URL for the API
-// API endpoint - using the actual API Gateway URL from CloudFormation output
-const API_BASE_URL = window.location.hostname === 'localhost' 
-    ? 'http://localhost:3000/api'  // For local testing
-    : '/api';  // Use relative path for deployed version
+const API_BASE_URL = 'https://your-api-gateway-url.execute-api.us-east-1.amazonaws.com/dev/api';
+
 // Status elements
 const statusElement = document.getElementById('status');
 const resultsElement = document.getElementById('results');
@@ -23,19 +21,24 @@ async function processQueryWithStreaming(query, questionType = null) {
     // Initial request parameters
     let requestParams = {
       query: query,
-      question_type: questionType,
-      batch_size: 1000
+      question_type: questionType
     };
     
     let batchNumber = 1;
     let totalMatches = 0;
     let embedding = null;
+    let accumulatedResults = [];
     
     // Process batches until complete
     while (true) {
       // If we have an embedding from a previous batch, use it
       if (embedding) {
         requestParams.embedding = embedding;
+      }
+      
+      // If we have accumulated results, include them
+      if (accumulatedResults.length > 0) {
+        requestParams.accumulated_results = accumulatedResults;
       }
       
       // Update status
@@ -63,12 +66,17 @@ async function processQueryWithStreaming(query, questionType = null) {
         embedding = data.embedding;
       }
       
+      // Save accumulated results for next request
+      if (data.accumulated_results) {
+        accumulatedResults = data.accumulated_results;
+      }
+      
       // Display batch results
       const batchResults = data.batch_results || [];
-      totalMatches += batchResults.length;
+      totalMatches = batchResults.length;
       
       // Update the UI with batch results
-      updateBatchResults(batchResults, batchNumber);
+      updateBatchResults(batchResults, batchNumber, data.items_processed || 0);
       
       // If this is the final batch, show the LLM response
       if (data.is_final) {
@@ -93,15 +101,16 @@ async function processQueryWithStreaming(query, questionType = null) {
  * Update the UI with batch results
  * @param {Array} batchResults - Array of matching documents
  * @param {number} batchNumber - Current batch number
+ * @param {number} itemsProcessed - Number of items processed in this batch
  */
-function updateBatchResults(batchResults, batchNumber) {
+function updateBatchResults(batchResults, batchNumber, itemsProcessed) {
   if (batchResults.length === 0) {
     return;
   }
   
   const batchElement = document.createElement('div');
   batchElement.className = 'batch-results';
-  batchElement.innerHTML = `<h3>Batch ${batchNumber} Results (${batchResults.length} matches)</h3>`;
+  batchElement.innerHTML = `<h3>Batch ${batchNumber} Results (${batchResults.length} matches from ${itemsProcessed} items)</h3>`;
   
   const matchesList = document.createElement('ul');
   batchResults.forEach(match => {
@@ -134,9 +143,3 @@ function displayFinalResponse(response) {
   `;
   resultsElement.appendChild(responseElement);
 }
-
-// Example usage:
-// document.getElementById('submit-button').addEventListener('click', () => {
-//   const query = document.getElementById('query-input').value;
-//   processQueryWithStreaming(query);
-// });

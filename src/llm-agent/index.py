@@ -215,6 +215,157 @@ def lambda_handler(event, context):
         body = json.loads(event.get('body', '{}'))
         query = body.get('query')
         question_type = body.get('question_type')  # multiple_choice, yes_no, true_false, or null
+        last_key = body.get('last_key')  # Pagination token from previous request
+        accumulated_results = body.get('accumulated_results', [])  # Results from previous batches
+        
+        logger.info(f"Processing query: '{query}' with question_type: {question_type}, batch_size: 1000")
+        
+        if not query:
+            logger.warning("Missing query parameter")
+            return {
+                'statusCode': 400,
+                'headers': {'Content-Type': 'application/json'},
+                'body': json.dumps({'error': 'Missing query parameter'})
+            }
+        
+        # Check for required environment variables
+        if not EMBEDDINGS_TABLE:
+            error_msg = "Missing required environment variable: EMBEDDINGS_TABLE"
+            logger.error(error_msg)
+            return {
+                'statusCode': 500,
+                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({'error': error_msg})
+            }
+        
+        # Generate embedding for the query (only once in the first request)
+        if not body.get('embedding'):
+            try:
+                query_embedding = generate_embedding(query)
+            except Exception as e:
+                error_msg = f"Error generating embedding: {str(e)}"
+                logger.error(error_msg)
+                return {
+                    'statusCode': 500,
+                    'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                    'body': json.dumps({'error': error_msg})
+                }
+        else:
+            query_embedding = body.get('embedding')
+        
+        # Process a batch of records
+        try:
+            # Use multiple smaller scans to build up a larger batch
+            total_items = 0
+            batch_items = []
+            next_key = last_key
+            max_items_per_batch = 200  # Process up to 200 items in this Lambda invocation
+            
+            # Keep scanning until we have enough items or reach the end of the table
+            while total_items < max_items_per_batch:
+                # Prepare scan parameters for this mini-batch
+                scan_params = {
+                    'TableName': EMBEDDINGS_TABLE,
+                    'Limit': 100,  # Use smaller chunks to avoid DynamoDB limits
+                    'ProjectionExpression': "id, document_id, content, embedding_json"
+                }
+                
+                if next_key:
+                    scan_params['ExclusiveStartKey'] = json.loads(next_key) if isinstance(next_key, str) else next_key
+                
+                # Execute the scan for this mini-batch
+                response = dynamodb.meta.client.scan(**scan_params)
+                items = response.get('Items', [])
+                batch_items.extend(items)
+                total_items += len(items)
+                
+                logger.info(f"Scanned mini-batch of {len(items)} items, total in this batch: {total_items}")
+                
+                # Get next pagination token
+                next_key = response.get('LastEvaluatedKey')
+                
+                # Break if no more pages or we've collected enough items
+                if not next_key or total_items >= max_items_per_batch:
+                    break
+            
+            # Process all items in this batch
+            batch_similarities = []
+            for item in batch_items:
+                try:
+                    doc_embedding = json.loads(item.get('embedding_json', '[]'))
+                    similarity = cosine_similarity(query_embedding, doc_embedding)
+                    
+                    # Use threshold for filtering
+                    if similarity >= SIMILARITY_THRESHOLD:
+                        batch_similarities.append({
+                            'document_id': item.get('document_id', ''),
+                            'content': item.get('content', ''),
+                            'similarity': similarity
+                        })
+                except Exception as e:
+                    logger.error(f"Error processing item: {str(e)}")
+            
+            # Combine with previously accumulated results
+            all_similarities = accumulated_results + batch_similarities
+            
+            # Sort all results by similarity
+            all_similarities.sort(key=lambda x: x['similarity'], reverse=True)
+            
+            # Keep only the top results to avoid response size limits
+            top_similarities = all_similarities[:50]
+            
+            # Get next pagination token as string
+            next_key_json = json.dumps(next_key) if next_key else None
+            
+            # If this is the final batch or we have enough good matches, call Claude
+            is_final_batch = not next_key or len(all_similarities) >= MAX_CONTEXT_DOCS * 5
+            llm_response = None
+            
+            if is_final_batch:
+                # Use the best matches we've found so far
+                context_docs = all_similarities[:MAX_CONTEXT_DOCS]
+                llm_response = call_claude(query, context_docs, question_type)
+            
+            logger.info(f"Successfully processed batch with {total_items} items, found {len(batch_similarities)} matches")
+            return {
+                'statusCode': 200,
+                'headers': {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*'
+                },
+                'body': json.dumps({
+                    'batch_results': top_similarities,
+                    'next_key': next_key_json,
+                    'is_final': is_final_batch,
+                    'llm_response': llm_response,
+                    'embedding': query_embedding,
+                    'accumulated_results': all_similarities,
+                    'items_processed': total_items
+                })
+            }
+        except Exception as e:
+            error_msg = f"Error processing batch: {str(e)}"
+            logger.error(error_msg)
+            return {
+                'statusCode': 500,
+                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({'error': error_msg})
+            }
+    
+    except Exception as e:
+        logger.error(f"Error processing request: {str(e)}", exc_info=True)
+        return {
+            'statusCode': 500,
+            'headers': {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            },
+            'body': json.dumps({'error': str(e)})f"Received event: {json.dumps(event)}")
+    try:
+        # Parse request body
+        body = json.loads(event.get('body', '{}'))
+        query = body.get('query')
+        question_type = body.get('question_type')  # multiple_choice, yes_no, true_false, or null
         batch_size = body.get('batch_size', 1000)  # Number of records to process per batch
         last_key = body.get('last_key')  # Pagination token from previous request
         

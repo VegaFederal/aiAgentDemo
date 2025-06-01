@@ -63,13 +63,13 @@ def retrieve_relevant_context(query_embedding):
     # Since vector search isn't available, use the optimized fallback method directly
     return retrieve_relevant_context_fallback(query_embedding)
 
+# This function is now replaced by the streaming implementation in lambda_handler
 def retrieve_relevant_context_fallback(query_embedding):
-    """Optimized fallback method for large datasets with time limit"""
-    logger.info("Using optimized fallback method with aggressive batching and time limit")
+    """Legacy method - kept for backward compatibility"""
+    logger.info("Using legacy fallback method - this should not be called with streaming enabled")
     
     # Set time limit to ensure we don't exceed Lambda/API Gateway timeouts
-    # Allow 20 seconds for the rest of the processing (embedding generation, LLM call)
-    time_limit_seconds = 100  # 100 seconds max for context retrieval
+    time_limit_seconds = 20  # Reduced time limit since we're using streaming now
     start_time = time.time()
     
     # Increase batch size for fewer network calls
@@ -83,7 +83,7 @@ def retrieve_relevant_context_fallback(query_embedding):
     similarities = []
     last_evaluated_key = None
     processed_count = 0
-    max_processed = 15600  # Safety limit to avoid processing too many items
+    max_processed = 5000  # Reduced safety limit
     
     while processed_count < max_processed:
         # Check if we're approaching the time limit
@@ -208,13 +208,15 @@ def call_claude(query, context_docs, question_type=None):
         return error_message
 
 def lambda_handler(event, context):
-    """Handle API Gateway requests for the LLM agent"""
+    """Handle API Gateway requests for the LLM agent with streaming support"""
     logger.info(f"Received event: {json.dumps(event)}")
     try:
         # Parse request body
         body = json.loads(event.get('body', '{}'))
         query = body.get('query')
         question_type = body.get('question_type')  # multiple_choice, yes_no, true_false, or null
+        batch_size = body.get('batch_size', 1000)  # Number of records to process per batch
+        last_key = body.get('last_key')  # Pagination token from previous request
         
         logger.info(f"Processing query: '{query}' with question_type: {question_type}")
         
@@ -236,54 +238,95 @@ def lambda_handler(event, context):
                 'body': json.dumps({'error': error_msg})
             }
         
-        # Generate embedding for the query
+        # Generate embedding for the query (only once in the first request)
+        if not body.get('embedding'):
+            try:
+                query_embedding = generate_embedding(query)
+            except Exception as e:
+                error_msg = f"Error generating embedding: {str(e)}"
+                logger.error(error_msg)
+                return {
+                    'statusCode': 500,
+                    'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                    'body': json.dumps({'error': error_msg})
+                }
+        else:
+            query_embedding = body.get('embedding')
+        
+        # Process a batch of records
         try:
-            query_embedding = generate_embedding(query)
+            # Prepare scan parameters for this batch
+            scan_params = {
+                'TableName': EMBEDDINGS_TABLE,
+                'Limit': batch_size,
+                'ProjectionExpression': "id, document_id, content, embedding_json"
+            }
+            
+            if last_key:
+                scan_params['ExclusiveStartKey'] = json.loads(last_key)
+            
+            # Execute the scan for this batch
+            response = dynamodb.meta.client.scan(**scan_params)
+            batch_items = response.get('Items', [])
+            
+            logger.info(f"Processing batch of {len(batch_items)} items")
+            
+            # Process this batch
+            batch_similarities = []
+            for item in batch_items:
+                try:
+                    doc_embedding = json.loads(item.get('embedding_json', '[]'))
+                    similarity = cosine_similarity(query_embedding, doc_embedding)
+                    
+                    # Use threshold for filtering
+                    if similarity >= SIMILARITY_THRESHOLD:
+                        batch_similarities.append({
+                            'document_id': item.get('document_id', ''),
+                            'content': item.get('content', ''),
+                            'similarity': similarity
+                        })
+                except Exception as e:
+                    logger.error(f"Error processing item: {str(e)}")
+            
+            # Sort by similarity
+            batch_similarities.sort(key=lambda x: x['similarity'], reverse=True)
+            
+            # Get next pagination token
+            next_key = response.get('LastEvaluatedKey')
+            next_key_json = json.dumps(next_key) if next_key else None
+            
+            # If this is the final batch or we have enough good matches, call Claude
+            is_final_batch = not next_key or len(batch_similarities) >= MAX_CONTEXT_DOCS
+            llm_response = None
+            
+            if is_final_batch:
+                # Use the best matches we've found so far
+                context_docs = batch_similarities[:MAX_CONTEXT_DOCS]
+                llm_response = call_claude(query, context_docs, question_type)
+            
+            logger.info("Successfully processed batch request")
+            return {
+                'statusCode': 200,
+                'headers': {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*'
+                },
+                'body': json.dumps({
+                    'batch_results': batch_similarities,
+                    'next_key': next_key_json,
+                    'is_final': is_final_batch,
+                    'llm_response': llm_response,
+                    'embedding': query_embedding
+                })
+            }
         except Exception as e:
-            error_msg = f"Error generating embedding: {str(e)}"
+            error_msg = f"Error processing batch: {str(e)}"
             logger.error(error_msg)
             return {
                 'statusCode': 500,
                 'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
                 'body': json.dumps({'error': error_msg})
             }
-        
-        # Retrieve relevant context
-        try:
-            context_docs = retrieve_relevant_context(query_embedding)
-        except Exception as e:
-            error_msg = f"Error retrieving context: {str(e)}"
-            logger.error(error_msg)
-            return {
-                'statusCode': 500,
-                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-                'body': json.dumps({'error': error_msg})
-            }
-        
-        # Call Claude with the query and context
-        response = call_claude(query, context_docs, question_type)
-        
-        # Check if response contains error message
-        if response and response.startswith("Error:"):
-            logger.error(f"LLM error: {response}")
-            return {
-                'statusCode': 500,
-                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-                'body': json.dumps({'error': response})
-            }
-        
-        logger.info("Successfully processed request")
-        return {
-            'statusCode': 200,
-            'headers': {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
-            },
-            'body': json.dumps({
-                'response': response,
-                'context_used': len(context_docs)
-            })
-        }
     
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}", exc_info=True)

@@ -26,6 +26,10 @@ Parameters:
   DocProcessingApiEndpoint:
     Type: String
     Description: Document Processing API Gateway endpoint URL
+    
+  ResultsBucketName:
+    Type: String
+    Description: Name of the S3 bucket for LLM agent results
 
 Resources:
   CloudFrontOAI:
@@ -34,7 +38,7 @@ Resources:
       CloudFrontOriginAccessIdentityConfig:
         Comment: !Sub ${AWS::StackName} OAI
 
-  # Bucket Policy for CloudFront access
+  # Bucket Policy for CloudFront access to Website bucket
   WebsiteBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
@@ -47,6 +51,20 @@ Resources:
             Resource: !Sub arn:aws:s3:::${WebsiteBucketName}/*
             Principal:
               CanonicalUser: !GetAtt CloudFrontOAI.S3CanonicalUserId
+              
+  # Bucket Policy for CloudFront access to Results bucket
+  ResultsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ResultsBucketName
+      PolicyDocument:
+        Statement:
+          - Action:
+              - s3:GetObject
+            Effect: Allow
+            Resource: !Sub arn:aws:s3:::${ResultsBucketName}/*
+            Principal:
+              CanonicalUser: !GetAtt CloudFrontOAI.S3CanonicalUserId
 
   # CloudFront Distribution
   CloudFrontDistribution:
@@ -56,6 +74,10 @@ Resources:
         Origins:
           - DomainName: !Sub ${WebsiteBucketName}.s3.amazonaws.com
             Id: S3Origin
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub origin-access-identity/cloudfront/${CloudFrontOAI}
+          - DomainName: !Sub ${ResultsBucketName}.s3.amazonaws.com
+            Id: ResultsOrigin
             S3OriginConfig:
               OriginAccessIdentity: !Sub origin-access-identity/cloudfront/${CloudFrontOAI}
           - DomainName: !Select [2, !Split ["/", !Ref ApiEndpoint]]
@@ -132,6 +154,20 @@ Resources:
             MinTTL: 0
             DefaultTTL: 0
             MaxTTL: 0
+          - PathPattern: /results/*
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+            TargetOriginId: ResultsOrigin
+            ForwardedValues:
+              QueryString: false
+              Cookies:
+                Forward: none
+            ViewerProtocolPolicy: https-only
+            MinTTL: 0
+            DefaultTTL: 60
+            MaxTTL: 3600
         PriceClass: PriceClass_100
         ViewerCertificate:
           CloudFrontDefaultCertificate: true

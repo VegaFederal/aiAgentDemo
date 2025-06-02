@@ -219,7 +219,7 @@ jobs:
                   --function-name $FUNCTION_NAME \
                   --timeout 120 \
                   --memory-size 1024 \
-                  --environment "Variables={EMBEDDINGS_TABLE=$TABLE_NAME,EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0,LLM_MODEL_ID=arn:aws:bedrock:us-east-1:879961718230:inference-profile/us.anthropic.claude-3-5-sonnet-20241022-v2:0,CHUNK_SIZE=1000,CHUNK_OVERLAP=200,LOG_LEVEL=INFO}" 2>/dev/null; then
+                  --environment "Variables={EMBEDDINGS_TABLE=$TABLE_NAME,EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0,LLM_MODEL_ID=arn:aws:bedrock:us-east-1:879961718230:inference-profile/us.anthropic.claude-3-5-sonnet-20241022-v2:0,CHUNK_SIZE=1000,CHUNK_OVERLAP=200,LOG_LEVEL=INFO,RESULTS_BUCKET=your-bucket-name}"
                   echo "Successfully updated function configuration"
                   break
                 else

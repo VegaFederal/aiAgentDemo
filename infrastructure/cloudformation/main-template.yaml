@@ -103,6 +103,7 @@ Resources:
         WebsiteBucketName: !GetAtt StaticWebsiteStack.Outputs.WebsiteBucketName
         ApiEndpoint: !GetAtt ApiGatewayStack.Outputs.LlmAgentApiEndpoint
         DocProcessingApiEndpoint: !GetAtt DocumentProcessingStack.Outputs.ApiEndpoint
+        ResultsBucketName: !GetAtt ApiGatewayStack.Outputs.LlmResultsBucketName
       Tags:
         - Key: Environment
           Value: !Ref Environment

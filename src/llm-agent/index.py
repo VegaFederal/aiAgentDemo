@@ -208,8 +208,165 @@ def call_claude(query, context_docs, question_type=None):
         return error_message
 
 def lambda_handler(event, context):
-    """Handle API Gateway requests for the LLM agent with streaming support"""
+    """Handle API Gateway requests for the LLM agent with asynchronous processing"""
     logger.info(f"Received event: {json.dumps(event)}")
+    
+    try:
+        # Parse request body
+        body = json.loads(event.get('body', '{}'))
+        query = body.get('query')
+        question_type = body.get('question_type')
+        request_id = body.get('request_id')
+        
+        if not query:
+            logger.warning("Missing query parameter")
+            return {
+                'statusCode': 400,
+                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({'error': 'Missing query parameter'})
+            }
+            
+        if not request_id:
+            logger.warning("Missing request_id parameter")
+            return {
+                'statusCode': 400,
+                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({'error': 'Missing request_id parameter'})
+            }
+        
+        # Initialize S3 client
+        s3 = boto3.client('s3')
+        results_bucket = os.environ.get('RESULTS_BUCKET', 'aiagentdemo-results')
+        
+        # Start asynchronous processing
+        logger.info(f"Starting asynchronous processing for request_id: {request_id}")
+        
+        # Start the processing in a separate thread or Lambda invocation
+        lambda_client = boto3.client('lambda')
+        lambda_client.invoke(
+            FunctionName=context.function_name,
+            InvocationType='Event',  # Asynchronous invocation
+            Payload=json.dumps({
+                'operation': 'process_query',
+                'query': query,
+                'question_type': question_type,
+                'request_id': request_id,
+                'results_bucket': results_bucket
+            })
+        )
+        
+        # Return immediate response
+        return {
+            'statusCode': 202,  # Accepted
+            'headers': {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            },
+            'body': json.dumps({
+                'message': 'Working...',
+                'request_id': request_id
+            })
+        }
+        
+    except Exception as e:
+        logger.error(f"Error processing request: {str(e)}", exc_info=True)
+        return {
+            'statusCode': 500,
+            'headers': {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            },
+            'body': json.dumps({'error': str(e)})
+        }
+
+def process_query(event):
+    """Process a query asynchronously and store results in S3"""
+    query = event.get('query')
+    question_type = event.get('question_type')
+    request_id = event.get('request_id')
+    results_bucket = event.get('results_bucket')
+    
+    logger.info(f"Processing query asynchronously: '{query}' with request_id: {request_id}")
+    
+    try:
+        # Generate embedding for the query
+        query_embedding = generate_embedding(query)
+        
+        # Use DynamoDB's internal vector search capabilities
+        # Note: This requires that the table has vector search enabled
+        try:
+            # Use vector search if available
+            response = embeddings_table.query(
+                IndexName="EmbeddingVectorSearch",
+                KeyConditionExpression="embedding_vector = :embedding",
+                ExpressionAttributeValues={
+                    ":embedding": query_embedding
+                },
+                Limit=MAX_CONTEXT_DOCS * 2
+            )
+            
+            # Process results
+            items = response.get('Items', [])
+            logger.info(f"Vector search returned {len(items)} items")
+            
+            # Convert to our standard format
+            context_docs = []
+            for item in items:
+                context_docs.append({
+                    'document_id': item.get('document_id', ''),
+                    'content': item.get('content', ''),
+                    'similarity': 1.0  # DynamoDB vector search already sorts by similarity
+                })
+                
+        except Exception as e:
+            # Fall back to our custom similarity search if vector search fails
+            logger.warning(f"Vector search failed, falling back to custom similarity: {str(e)}")
+            context_docs = retrieve_relevant_context_fallback(query_embedding)
+        
+        # Call Claude with the query and context
+        response = call_claude(query, context_docs, question_type)
+        
+        # Prepare results
+        results = {
+            'request_id': request_id,
+            'query': query,
+            'response': response,
+            'context_docs': context_docs,
+            'timestamp': time.time()
+        }
+        
+        # Store results in S3
+        s3 = boto3.client('s3')
+        s3.put_object(
+            Bucket=results_bucket,
+            Key=f"results/{request_id}.json",
+            Body=json.dumps(results),
+            ContentType='application/json'
+        )
+        
+        logger.info(f"Results stored in S3 for request_id: {request_id}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error processing query: {str(e)}", exc_info=True)
+        
+        # Store error in S3
+        try:
+            s3 = boto3.client('s3')
+            s3.put_object(
+                Bucket=results_bucket,
+                Key=f"results/{request_id}.json",
+                Body=json.dumps({
+                    'request_id': request_id,
+                    'error': str(e),
+                    'timestamp': time.time()
+                }),
+                ContentType='application/json'
+            )
+        except Exception as s3_error:
+            logger.error(f"Error storing error in S3: {str(s3_error)}")
+        
+        return Falsef"Received event: {json.dumps(event)}")
     try:
         # Parse request body
         body = json.loads(event.get('body', '{}'))

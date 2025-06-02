@@ -16,6 +16,27 @@ Parameters:
     Description: ARN of the LLM Agent Lambda function
 
 Resources:
+  # S3 Bucket for LLM Agent Results
+  LlmResultsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${AWS::StackName}-results-${Environment}
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET]
+            AllowedOrigins: ['*']
+            MaxAge: 3600
+      # Block public access since we'll use CloudFront
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # S3 Bucket Policy for Public Read Access
+  # We'll use CloudFront to access the bucket, so we don't need a public bucket policy here
+
   # API Gateway for LLM Agent
   LlmAgentApi:
     Type: AWS::ApiGateway::RestApi
@@ -45,6 +66,22 @@ Resources:
       FunctionName: !Ref LlmAgentFunctionArn
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${LlmAgentApi}/${Environment}/POST/api
+      
+  # IAM Policy for Lambda to access S3 bucket
+  LlmAgentS3Policy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub ${AWS::StackName}-lambda-s3-policy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - 's3:PutObject'
+              - 's3:GetObject'
+            Resource: !Sub ${LlmResultsBucket.Arn}/*
+      Roles:
+        - !Select [1, !Split ["/", !Ref LlmAgentFunctionArn]]
 
   # API Gateway Method
   LlmAgentMethod:
@@ -97,3 +134,7 @@ Outputs:
   LlmAgentApiId:
     Description: API Gateway ID
     Value: !Ref LlmAgentApi
+    
+  LlmResultsBucketName:
+    Description: S3 bucket name for LLM agent results
+    Value: !Ref LlmResultsBucket

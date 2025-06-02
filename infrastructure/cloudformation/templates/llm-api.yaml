@@ -35,15 +35,17 @@ Resources:
         RestrictPublicBuckets: true
 
   # S3 Bucket Policy for Public Read Access
-  # Lambda execution role policy for S3 access
-  LambdaS3AccessPolicy:
-    Type: AWS::IAM::ManagedPolicy
+  # S3 bucket policy to allow Lambda access
+  LlmResultsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
     Properties:
-      ManagedPolicyName: !Sub "${AWS::StackName}-s3-access-${AWS::Region}-${AWS::AccountId}"
+      Bucket: !Ref LlmResultsBucket
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
           - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
             Action:
               - 's3:PutObject'
               - 's3:GetObject'
@@ -76,12 +78,14 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${LlmAgentApi}/${Environment}/POST/api
       
-  # Output the managed policy ARN for use in the main template
-  LambdaPolicyAttachment:
-    Type: AWS::IAM::ManagedPolicyAttachment
+  # Add S3 permissions directly to the Lambda function
+  LambdaS3AccessPolicyAttachment:
+    Type: AWS::Lambda::Permission
     Properties:
-      PolicyArn: !Ref LambdaS3AccessPolicy
-      RoleName: !Select [1, !Split ["/", !Select [6, !Split [":", !Ref LlmAgentFunctionArn]]]]
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref LlmAgentFunctionArn
+      Principal: s3.amazonaws.com
+      SourceArn: !GetAtt LlmResultsBucket.Arn
 
   # API Gateway Method
   LlmAgentMethod:

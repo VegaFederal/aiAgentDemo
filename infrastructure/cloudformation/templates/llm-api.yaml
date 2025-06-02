@@ -20,7 +20,7 @@ Resources:
   LlmResultsBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub ${AWS::StackName}-results-${Environment}
+      BucketName: !Sub ${AWS::StackName}-results-${Environment}-${AWS::AccountId}
       CorsConfiguration:
         CorsRules:
           - AllowedHeaders: ['*']
@@ -35,7 +35,19 @@ Resources:
         RestrictPublicBuckets: true
 
   # S3 Bucket Policy for Public Read Access
-  # We'll use CloudFront to access the bucket, so we don't need a public bucket policy here
+  # Lambda execution role policy for S3 access
+  LambdaS3AccessPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub "${AWS::StackName}-s3-access-${AWS::Region}-${AWS::AccountId}"
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - 's3:PutObject'
+              - 's3:GetObject'
+            Resource: !Sub "${LlmResultsBucket.Arn}/*"
 
   # API Gateway for LLM Agent
   LlmAgentApi:
@@ -67,21 +79,12 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${LlmAgentApi}/${Environment}/POST/api
       
-  # IAM Policy for Lambda to access S3 bucket
-  LlmAgentS3Policy:
-    Type: AWS::IAM::Policy
+  # Output the managed policy ARN for use in the main template
+  LambdaPolicyAttachment:
+    Type: AWS::IAM::ManagedPolicyAttachment
     Properties:
-      PolicyName: !Sub ${AWS::StackName}-lambda-s3-policy
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Action:
-              - 's3:PutObject'
-              - 's3:GetObject'
-            Resource: !Sub ${LlmResultsBucket.Arn}/*
-      Roles:
-        - !Select [1, !Split ["/", !Ref LlmAgentFunctionArn]]
+      PolicyArn: !Ref LambdaS3AccessPolicy
+      RoleName: !Select [1, !Split ["/", !Select [6, !Split [":", !Ref LlmAgentFunctionArn]]]]
 
   # API Gateway Method
   LlmAgentMethod:

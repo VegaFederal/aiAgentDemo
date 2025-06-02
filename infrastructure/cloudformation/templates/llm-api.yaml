@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: API Gateway for LLM agent
+Description: API Gateway for LLM agent and response bucket.
 
 Parameters:
   Environment:

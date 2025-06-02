@@ -58,9 +58,6 @@ Resources:
       EndpointConfiguration:
         Types:
           - REGIONAL
-      EndpointConfiguration:
-        Types:
-          - REGIONAL
 
   # API Gateway Resource
   LlmAgentResource:
@@ -99,6 +96,7 @@ Resources:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
         Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LlmAgentFunctionArn}/invocations
+        TimeoutInMillis: 3000
       # Add CORS support here
       MethodResponses:
         - StatusCode: '200'

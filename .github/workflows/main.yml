@@ -73,9 +73,9 @@ jobs:
 
       - name: Upload templates to S3
         run: |
-          aws s3 sync infrastructure/cloudformation/templates/ s3://$TEMPLATE_BUCKET/templates/
+          aws s3 sync infrastructure/cloudformation/templates/ s3://$TEMPLATE_BUCKET/templates/ --cache-control "no-cache,max-age=0"
           # Update template URLs in main-template.yaml to use S3 paths
-          sed -i "s|TemplateURL: ./templates/|TemplateURL: https://s3.amazonaws.com/$TEMPLATE_BUCKET/templates/|g" infrastructure/cloudformation/main-template.yaml
+          sed -i "s|TemplateURL: ./templates/|TemplateURL: https://s3.amazonaws.com/$TEMPLATE_BUCKET/templates/?v=$(date +%s)|g" infrastructure/cloudformation/main-template.yaml
           # Also update any URLs that might already be in S3 format
           sed -i "s|https://s3.amazonaws.com/TEMPLATE_BUCKET/templates/|https://s3.amazonaws.com/$TEMPLATE_BUCKET/templates/|g" infrastructure/cloudformation/main-template.yaml
       - name: Set up Python

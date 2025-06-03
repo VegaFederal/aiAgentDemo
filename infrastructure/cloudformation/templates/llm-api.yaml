@@ -20,7 +20,7 @@ Resources:
   LlmResultsBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub ${AWS::StackName}-results-${Environment}-${AWS::AccountId}
+      BucketName: !Sub aiad-results-${Environment}
       CorsConfiguration:
         CorsRules:
           - AllowedHeaders: ['*']

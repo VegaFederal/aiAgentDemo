@@ -274,10 +274,6 @@ def lambda_handler(event, context):
     """Handle API Gateway requests for the LLM agent with asynchronous processing"""
     logger.info(f"Received event: {json.dumps(event)}")
     
-    # Check if this is an asynchronous processing request
-    if event.get('operation') == 'process_query':
-        return process_query(event)
-    
     try:
         # Parse request body
         body = json.loads(event.get('body', '{}'))
@@ -301,25 +297,8 @@ def lambda_handler(event, context):
                 'body': json.dumps({'error': 'Missing request_id parameter'})
             }
         
-        # Start asynchronous processing
-        logger.info(f"Starting asynchronous processing for request_id: {request_id}")
-        
-        # Start the processing in a separate Lambda invocation
-        lambda_client = boto3.client('lambda')
-        lambda_client.invoke(
-            FunctionName=context.function_name,
-            InvocationType='Event',  # Asynchronous invocation
-            Payload=json.dumps({
-                'operation': 'process_query',
-                'query': query,
-                'question_type': question_type,
-                'request_id': request_id,
-                'results_bucket': RESULTS_BUCKET
-            })
-        )
-        
         # Return immediate response
-        return {
+        response = {
             'statusCode': 202,  # Accepted
             'headers': {
                 'Content-Type': 'application/json',
@@ -330,6 +309,16 @@ def lambda_handler(event, context):
                 'request_id': request_id
             })
         }
+        
+        # Process the query and write results to S3 (this will continue after response is sent)
+        process_query({
+            'query': query,
+            'question_type': question_type,
+            'request_id': request_id,
+            'results_bucket': RESULTS_BUCKET
+        })
+        
+        return response
         
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}", exc_info=True)

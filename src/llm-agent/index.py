@@ -221,34 +221,9 @@ def process_query(event):
         
         # Use DynamoDB's internal vector search capabilities
         # Note: This requires that the table has vector search enabled
-        try:
-            # Use vector search if available
-            response = embeddings_table.query(
-                IndexName="EmbeddingVectorSearch",
-                KeyConditionExpression="embedding_vector = :embedding",
-                ExpressionAttributeValues={
-                    ":embedding": query_embedding
-                },
-                Limit=MAX_CONTEXT_DOCS * 2
-            )
-            
-            # Process results
-            items = response.get('Items', [])
-            logger.info(f"Vector search returned {len(items)} items")
-            
-            # Convert to our standard format
-            context_docs = []
-            for item in items:
-                context_docs.append({
-                    'document_id': item.get('document_id', ''),
-                    'content': item.get('content', ''),
-                    'similarity': 1.0  # DynamoDB vector search already sorts by similarity
-                })
-                
-        except Exception as e:
-            # Fall back to our custom similarity search if vector search fails
-            logger.warning(f"Vector search failed, falling back to custom similarity: {str(e)}")
-            context_docs = retrieve_relevant_context_fallback(query_embedding)
+        # Use our custom similarity search implementation
+        logger.info("Using custom similarity search implementation")
+        context_docs = retrieve_relevant_context_fallback(query_embedding)
         
         # Call Claude with the query and context
         response = call_claude(query, context_docs, question_type)

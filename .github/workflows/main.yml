@@ -166,24 +166,8 @@ jobs:
           echo "LAMBDA_ROLE: $LAMBDA_ROLE_ARN"
           echo "EMBEDDINGS_TABLE: $TABLE_NAME"
           
-          # Add vector search to DynamoDB table
-          echo "Adding vector search capability to DynamoDB table: $TABLE_NAME"
-          aws dynamodb update-table \
-            --table-name $TABLE_NAME \
-            --vector-search-configurations '[{
-              "Name": "EmbeddingVectorSearch",
-              "CollectionName": "EmbeddingCollection",
-              "VectorFields": [{
-                "Name": "embedding_vector",
-                "Dimension": 1536,
-                "Type": "FLOAT",
-                "Attributes": [
-                  {"Name": "id", "Type": "STRING"},
-                  {"Name": "document_id", "Type": "STRING"},
-                  {"Name": "content", "Type": "STRING"}
-                ]
-              }]
-            }]' || echo "Vector search configuration failed - table may already have vector search or feature not available in this region"
+          # Vector search configuration removed - using custom similarity search instead
+          echo "Using custom similarity search implementation in Lambda function"
 
           # Function to update or create Lambda
           update_or_create_lambda() {

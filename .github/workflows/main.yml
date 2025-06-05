@@ -141,6 +141,9 @@ jobs:
           echo "Looking for DocumentProcessingStack outputs..."
           PROCESSING_STACK_ID=$(aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE --query "StackSummaries[?contains(StackName, '${{ env.PROJECT_NAME }}-DocumentProcessingStack')].StackName" --output text || echo "")
           
+          # Get AWS account ID
+          AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
+          
           if [ -z "$PROCESSING_STACK_ID" ]; then
             echo "DocumentProcessingStack not found, skipping Lambda updates"
             exit 0
@@ -203,7 +206,7 @@ jobs:
                   --function-name $FUNCTION_NAME \
                   --timeout 120 \
                   --memory-size 1024 \
-                  --environment "Variables={EMBEDDINGS_TABLE=$TABLE_NAME,EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0,LLM_MODEL_ID=arn:aws:bedrock:us-east-1:879961718230:inference-profile/us.anthropic.claude-3-5-sonnet-20241022-v2:0,CHUNK_SIZE=1000,CHUNK_OVERLAP=200,LOG_LEVEL=INFO,RESULTS_BUCKET=${AWS::StackName}-results-${Environment}-${AWS::AccountId}}"; then
+                  --environment "Variables={EMBEDDINGS_TABLE=$TABLE_NAME,EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0,LLM_MODEL_ID=arn:aws:bedrock:us-east-1:879961718230:inference-profile/us.anthropic.claude-3-5-sonnet-20241022-v2:0,CHUNK_SIZE=1000,CHUNK_OVERLAP=200,LOG_LEVEL=INFO,RESULTS_BUCKET=aiad-results-${Environment}-${AWS_ACCOUNT_ID}}"; then
                   echo "Successfully updated function configuration"
                   break
                 else

@@ -18,7 +18,8 @@ EMBEDDING_MODEL_ID = os.environ.get('EMBEDDING_MODEL_ID', 'amazon.titan-embed-te
 LLM_MODEL_ID = os.environ.get('LLM_MODEL_ID', 'anthropic.claude-3-5-sonnet-20241022-v2:0')
 SIMILARITY_THRESHOLD = float(os.environ.get('SIMILARITY_THRESHOLD', '0.7'))
 MAX_CONTEXT_DOCS = int(os.environ.get('MAX_CONTEXT_DOCS', '5'))
-RESULTS_BUCKET = os.environ.get('RESULTS_BUCKET', 'aiagentdemo-results')
+RESULTS_BUCKET = os.environ.get('RESULTS_BUCKET', 'aiad-results-dev')
+logger.info(f"RESULTS_BUCKET={RESULTS_BUCKET}")
 
 # Log configuration
 logger.info(f"Configuration: EMBEDDINGS_TABLE={EMBEDDINGS_TABLE}, EMBEDDING_MODEL_ID={EMBEDDING_MODEL_ID}, LLM_MODEL_ID={LLM_MODEL_ID}")
@@ -211,7 +212,14 @@ def process_query(event):
     query = event.get('query')
     question_type = event.get('question_type')
     request_id = event.get('request_id')
+    
+    # Make sure we have a results bucket
+    if not RESULTS_BUCKET:
+        logger.error("Missing RESULTS_BUCKET environment variable")
+        return False
+        
     results_bucket = event.get('results_bucket', RESULTS_BUCKET)
+    logger.info(f"Using results bucket: {results_bucket}")
     
     logger.info(f"Processing query asynchronously: '{query}' with request_id: {request_id}")
     

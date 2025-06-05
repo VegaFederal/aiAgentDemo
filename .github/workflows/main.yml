@@ -171,6 +171,37 @@ jobs:
           
           # Vector search configuration removed - using custom similarity search instead
           echo "Using custom similarity search implementation in Lambda function"
+          
+          # Add S3 permissions to Lambda role
+          ROLE_NAME=$(echo $LAMBDA_ROLE_ARN | cut -d'/' -f2)
+          echo "Adding S3 permissions to role: $ROLE_NAME"
+          
+          # Create policy document
+          cat > /tmp/s3-policy.json << EOF
+          {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Action": [
+                  "s3:PutObject",
+                  "s3:GetObject",
+                  "s3:ListBucket"
+                ],
+                "Resource": [
+                  "arn:aws:s3:::aiad-results-${Environment}",
+                  "arn:aws:s3:::aiad-results-${Environment}/*"
+                ]
+              }
+            ]
+          }
+          EOF
+          
+          # Create and attach policy
+          aws iam put-role-policy \
+            --role-name $ROLE_NAME \
+            --policy-name S3ResultsAccess \
+            --policy-document file:///tmp/s3-policy.json
 
           # Function to update or create Lambda
           update_or_create_lambda() {

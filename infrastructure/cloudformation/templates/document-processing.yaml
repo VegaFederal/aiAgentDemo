@@ -141,6 +141,8 @@ Resources:
                 Resource:
                   - !Sub arn:aws:s3:::${DocumentsBucketName}
                   - !Sub arn:aws:s3:::${DocumentsBucketName}/*
+                  - !Sub arn:aws:s3:::aiad-results-${Environment}
+                  - !Sub arn:aws:s3:::aiad-results-${Environment}/*
         - PolicyName: LambdaInvokeAccess
           PolicyDocument:
             Version: '2012-10-17'
@@ -190,6 +192,7 @@ Resources:
           EMBEDDINGS_TABLE: !Ref EmbeddingsTableName
           EMBEDDING_MODEL_ID: !Ref AIModel
           LLM_MODEL_ID: "arn:aws:bedrock:us-east-1:879961718230:inference-profile/us.anthropic.claude-3-5-sonnet-20241022-v2:0"
+          RESULTS_BUCKET: !Sub "aiad-results-${Environment}"
 
 
   # S3 Bucket for Document Storage
